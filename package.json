@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "bun src/main.ts",
+    "dev": "bun --watch src/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:unit": "bun test test/unit"
