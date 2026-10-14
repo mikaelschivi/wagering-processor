@@ -1,6 +1,6 @@
-import { WalletStore } from "../../application/ports";
-import { WalletAlreadyExistsError } from "../../domain/errors";
-import { Wallet } from "../../domain/wallet";
+import { WalletStore } from "../../src/application/ports";
+import { WalletAlreadyExistsError } from "../../src/domain/errors";
+import { Wallet } from "../../src/domain/wallet";
 
 export class InMemoryWalletStore extends WalletStore {
   private readonly wallets = new Map<string, Wallet>();

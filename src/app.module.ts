@@ -6,7 +6,7 @@ import { CreateWallet } from "./application/create-wallet";
 import { Clock, IdGenerator, WalletStore } from "./application/ports";
 import { APP_CONFIG, type AppConfig } from "./config";
 import { createOrm } from "./infra/db/mikro-orm.config";
-import { InMemoryWalletStore } from "./infra/db/in-memory-wallet-store";
+import { PostgresWalletStore } from "./infra/db/postgres-wallet-store";
 import { WalletsController } from "./infra/http/controllers";
 import { HealthController, READINESS_CHECKS, type ReadinessCheck } from "./infra/http/health.controller";
 import { ProblemDetailsFilter } from "./infra/http/problem-details.filter";
@@ -25,7 +25,6 @@ export class AppModule {
         { provide: APP_FILTER, useClass: ProblemDetailsFilter },
         { provide: Clock, useClass: SystemClock },
         { provide: IdGenerator, useClass: UuidV7Generator },
-        { provide: WalletStore, useClass: InMemoryWalletStore },
         {
           provide: CreateWallet,
           inject: [WalletStore, IdGenerator, Clock],
@@ -33,6 +32,11 @@ export class AppModule {
         },
         { provide: MikroORM, useFactory: () => createOrm(config) },
         { provide: SQS_CLIENT, useFactory: () => createSqsClient(config) },
+        {
+          provide: WalletStore,
+          inject: [MikroORM],
+          useFactory: (orm: MikroORM) => new PostgresWalletStore(orm, config),
+        },
         {
           provide: READINESS_CHECKS,
           inject: [MikroORM, SQS_CLIENT],

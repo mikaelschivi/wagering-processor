@@ -1,28 +1,20 @@
-import "reflect-metadata";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { NestFactory } from "@nestjs/core";
-import type { INestApplication } from "@nestjs/common";
-import { AppModule } from "../../src/app.module";
-import { loadConfig } from "../../src/config";
+import { type BootedApp, bootApp } from "../helpers/app";
+import { createTestDatabase, type TestDatabase } from "../helpers/db";
 
-let app: INestApplication;
+let db: TestDatabase;
+let booted: BootedApp;
 let baseUrl: string;
 
 beforeAll(async () => {
-  const config = loadConfig({
-    PORT: "0",
-    DB_APP_PASSWORD: "unused",
-    DB_HOST: "127.0.0.1",
-    DB_PORT: "1",
-    AWS_ENDPOINT_URL: "http://127.0.0.1:1",
-  });
-  app = await NestFactory.create(AppModule.forRoot(config), { logger: false });
-  await app.listen(0);
-  baseUrl = await app.getUrl();
-});
+  db = await createTestDatabase();
+  booted = await bootApp(db.config);
+  baseUrl = booted.baseUrl;
+}, 30_000);
 
 afterAll(async () => {
-  await app.close();
+  await booted.close();
+  await db.drop();
 });
 
 const post = (body: unknown, headers: Record<string, string> = {}) =>
@@ -195,5 +187,38 @@ describe("problem details", () => {
     const body = (await response.json()) as { correlationId: string };
     expect(body.correlationId).not.toBe("bad id!");
     expect(body.correlationId.length).toBeGreaterThan(10);
+  });
+});
+
+describe("persistence and multiple instances", () => {
+  test("a wallet survives a restart of the service", async () => {
+    const created = (await (await post(payload("321.00"))).json()) as { id: string };
+    const restarted = await bootApp(db.config);
+    try {
+      const response = await fetch(`${restarted.baseUrl}/wallets/${created.id}`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ id: created.id, balance: { amount: "321.00" }, version: 1 });
+    } finally {
+      await restarted.close();
+    }
+  });
+
+  test("a funded wallet leaves an opening transaction and ledger entry in the database", async () => {
+    const created = (await (await post(payload("77.00"))).json()) as { id: string };
+    const [tx] = await db.owner.em.fork().execute("select kind, provider_id, status, amount from wager_transactions where wallet_id = ?", [created.id]);
+    const [entry] = await db.owner.em
+      .fork()
+      .execute("select direction, balance_before, balance_after, wallet_version from wallet_ledger_entries where wallet_id = ?", [created.id]);
+    expect(tx).toEqual({ kind: "OPENING", provider_id: "__internal__", status: "PROCESSED", amount: "77.00" });
+    expect(entry).toEqual({ direction: "CREDIT", balance_before: "0.00", balance_after: "77.00", wallet_version: 1 });
+  });
+
+  test("a zero wallet leaves no transaction or ledger entry", async () => {
+    const created = (await (await post(payload("0.00"))).json()) as { id: string };
+    const [counts] = await db.owner.em.fork().execute(
+      "select (select count(*) from wager_transactions where wallet_id = ?) as txs, (select count(*) from wallet_ledger_entries where wallet_id = ?) as entries",
+      [created.id, created.id],
+    );
+    expect(counts).toEqual({ txs: "0", entries: "0" });
   });
 });

@@ -3,7 +3,7 @@ import { CreateWallet } from "../../src/application/create-wallet";
 import { Clock, IdGenerator, WalletStore } from "../../src/application/ports";
 import { InvalidMoneyError, WalletAlreadyExistsError } from "../../src/domain/errors";
 import type { Wallet, WalletLedgerEntry } from "../../src/domain/wallet";
-import { InMemoryWalletStore } from "../../src/infra/db/in-memory-wallet-store";
+import { InMemoryWalletStore } from "../helpers/in-memory-wallet-store";
 
 const now = new Date("2026-02-03T04:05:06.000Z");
 
