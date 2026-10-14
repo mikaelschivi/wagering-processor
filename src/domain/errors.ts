@@ -38,3 +38,25 @@ export class WalletAlreadyExistsError extends DomainError {
 export class NotFoundError extends DomainError {
   readonly code = "NOT_FOUND";
 }
+
+export enum FailureCode {
+  InsufficientFunds = "INSUFFICIENT_FUNDS",
+  InsufficientFundsForReversal = "INSUFFICIENT_FUNDS_FOR_REVERSAL",
+  CurrencyMismatch = "CURRENCY_MISMATCH",
+  PlayerWalletMismatch = "PLAYER_WALLET_MISMATCH",
+  ReferenceNotFound = "REFERENCE_NOT_FOUND",
+  ReferenceMismatch = "REFERENCE_MISMATCH",
+  ReferenceKindNotAllowed = "REFERENCE_KIND_NOT_ALLOWED",
+  ReferenceNotProcessed = "REFERENCE_NOT_PROCESSED",
+  ReferenceAlreadyReversed = "REFERENCE_ALREADY_REVERSED",
+  ReferenceAmountMismatch = "REFERENCE_AMOUNT_MISMATCH",
+  ProcessingFailed = "PROCESSING_FAILED",
+}
+
+export class InvalidWagerTransactionError extends DomainError {
+  readonly code = "INVALID_TRANSACTION";
+}
+
+export class InvalidTransactionStateError extends DomainError {
+  readonly code = "INVALID_TRANSACTION_STATE";
+}
