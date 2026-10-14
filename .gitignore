@@ -2,3 +2,4 @@ planning
 node_modules
 .env
 *.log
+lazygit
