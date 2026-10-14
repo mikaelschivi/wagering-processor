@@ -3,6 +3,7 @@ export const TX_STATEMENT_TIMEOUT_MS = 5000;
 export const TX_IDLE_IN_TX_TIMEOUT_MS = 15000;
 export const USE_CASE_DEADLINE_MS = 10000;
 export const SQS_VISIBILITY_TIMEOUT_S = 60;
+export const SQS_MAX_RECEIVE_COUNT = 5;
 export const SQS_VISIBILITY_SAFETY_MARGIN_S = 20;
 export const SQS_RETRY_BACKOFF_CAP_S = 60;
 export const SHUTDOWN_DRAIN_MS = 20000;
@@ -11,6 +12,8 @@ export const REFERENCE_PROCESS_CONCURRENCY = 5;
 export const REFERENCE_CLAIM_LEASE_S = 30;
 export const OUTBOX_SQS_REQUEST_TIMEOUT_MS = 3000;
 export const OUTBOX_TX_IDLE_TIMEOUT_MS = 10000;
+export const READY_DB_TIMEOUT_MS = 1000;
+export const READY_SQS_TIMEOUT_MS = 2000;
 
 export interface NestingInput {
   TX_LOCK_TIMEOUT_MS: number;

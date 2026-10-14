@@ -8,7 +8,8 @@
     "dev": "bun --watch src/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "test:unit": "bun test test/unit"
+    "test:unit": "bun test test/unit",
+    "queues:create": "bun scripts/create-queues.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1151.0",
