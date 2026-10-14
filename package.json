@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:unit": "bun test test/unit",
-    "queues:create": "bun scripts/create-queues.ts"
+    "queues:create": "bun scripts/create-queues.ts",
+    "migrate:up": "bun scripts/migrate.ts up",
+    "migrate:down": "bun scripts/migrate.ts down"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1151.0",

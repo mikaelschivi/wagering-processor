@@ -21,6 +21,8 @@ const schema = z.object({
   DB_NAME: z.string().min(1).default("wagering"),
   DB_APP_USER: z.string().min(1).default("wagering_app"),
   DB_APP_PASSWORD: z.string().min(1),
+  DB_OWNER_USER: z.string().min(1).default("wagering_owner"),
+  DB_OWNER_PASSWORD: z.string().min(1).optional(),
   AWS_REGION: z.string().min(1).default("us-east-1"),
   AWS_ENDPOINT_URL: z.string().url().optional(),
   SUPPORTED_CURRENCIES: z
