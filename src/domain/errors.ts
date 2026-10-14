@@ -18,3 +18,11 @@ export class CurrencyMismatchError extends DomainError {
 export class MoneyOverflowError extends DomainError {
   readonly code = "MONEY_OVERFLOW";
 }
+
+export class InsufficientFundsError extends DomainError {
+  readonly code = "INSUFFICIENT_FUNDS";
+}
+
+export class InvalidLedgerEntryError extends DomainError {
+  readonly code = "INVALID_LEDGER_ENTRY";
+}
