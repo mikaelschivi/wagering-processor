@@ -14,6 +14,7 @@ export const OUTBOX_SQS_REQUEST_TIMEOUT_MS = 3000;
 export const OUTBOX_TX_IDLE_TIMEOUT_MS = 10000;
 export const READY_DB_TIMEOUT_MS = 1000;
 export const READY_SQS_TIMEOUT_MS = 2000;
+export const DEFAULT_SUPPORTED_CURRENCIES = "BRL,USD";
 
 export interface NestingInput {
   TX_LOCK_TIMEOUT_MS: number;

@@ -26,3 +26,15 @@ export class InsufficientFundsError extends DomainError {
 export class InvalidLedgerEntryError extends DomainError {
   readonly code = "INVALID_LEDGER_ENTRY";
 }
+
+export class WalletAlreadyExistsError extends DomainError {
+  readonly code = "WALLET_ALREADY_EXISTS";
+
+  constructor(readonly existingWalletId: string) {
+    super("a wallet already exists for this player and currency");
+  }
+}
+
+export class NotFoundError extends DomainError {
+  readonly code = "NOT_FOUND";
+}

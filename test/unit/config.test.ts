@@ -29,6 +29,12 @@ describe("loadConfig", () => {
     expect(config.AWS_ENDPOINT_URL).toBeUndefined();
   });
 
+  test("supports a configured currency list", () => {
+    expect(loadConfig(base).SUPPORTED_CURRENCIES).toEqual(["BRL", "USD"]);
+    expect(loadConfig({ ...base, SUPPORTED_CURRENCIES: "BRL" }).SUPPORTED_CURRENCIES).toEqual(["BRL"]);
+    expect(() => loadConfig({ ...base, SUPPORTED_CURRENCIES: "brl" })).toThrow(ConfigError);
+  });
+
   test("requires the app database password", () => {
     expect(() => loadConfig({})).toThrow(ConfigError);
   });

@@ -1,20 +1,36 @@
 import { Module, type DynamicModule } from "@nestjs/common";
+import { APP_FILTER } from "@nestjs/core";
 import type { SQSClient } from "@aws-sdk/client-sqs";
 import { MikroORM } from "@mikro-orm/postgresql";
+import { CreateWallet } from "./application/create-wallet";
+import { Clock, IdGenerator, WalletStore } from "./application/ports";
 import { APP_CONFIG, type AppConfig } from "./config";
 import { createOrm } from "./infra/db/mikro-orm.config";
+import { InMemoryWalletStore } from "./infra/db/in-memory-wallet-store";
+import { WalletsController } from "./infra/http/controllers";
 import { HealthController, READINESS_CHECKS, type ReadinessCheck } from "./infra/http/health.controller";
+import { ProblemDetailsFilter } from "./infra/http/problem-details.filter";
 import { ResourceCloser } from "./infra/shutdown";
 import { createSqsClient, queueReachable, SQS_CLIENT } from "./infra/sqs/client";
+import { SystemClock, UuidV7Generator } from "./infra/system";
 
 @Module({})
 export class AppModule {
   static forRoot(config: AppConfig): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController],
+      controllers: [HealthController, WalletsController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
+        { provide: APP_FILTER, useClass: ProblemDetailsFilter },
+        { provide: Clock, useClass: SystemClock },
+        { provide: IdGenerator, useClass: UuidV7Generator },
+        { provide: WalletStore, useClass: InMemoryWalletStore },
+        {
+          provide: CreateWallet,
+          inject: [WalletStore, IdGenerator, Clock],
+          useFactory: (store: WalletStore, ids: IdGenerator, clock: Clock) => new CreateWallet(store, ids, clock),
+        },
         { provide: MikroORM, useFactory: () => createOrm(config) },
         { provide: SQS_CLIENT, useFactory: () => createSqsClient(config) },
         {

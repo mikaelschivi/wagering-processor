@@ -23,6 +23,11 @@ const schema = z.object({
   DB_APP_PASSWORD: z.string().min(1),
   AWS_REGION: z.string().min(1).default("us-east-1"),
   AWS_ENDPOINT_URL: z.string().url().optional(),
+  SUPPORTED_CURRENCIES: z
+    .string()
+    .default(defaults.DEFAULT_SUPPORTED_CURRENCIES)
+    .transform((value) => value.split(",").map((currency) => currency.trim()))
+    .pipe(z.array(z.string().regex(/^[A-Z]{3}$/)).min(1)),
   WAGER_QUEUE_NAME: z.string().min(1).default("wager-transactions.fifo"),
   WAGER_DLQ_NAME: z.string().min(1).default("wager-transactions-dlq.fifo"),
   EVENTS_QUEUE_NAME: z.string().min(1).default("wagering-events.fifo"),
