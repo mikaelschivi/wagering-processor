@@ -139,8 +139,7 @@ describe("POST /wallets/:id/reconciliation", () => {
         isolation: (await exec("show transaction_isolation"))[0],
         readOnly: (await exec("show transaction_read_only"))[0],
       }),
-      undefined,
-      { isolationLevel: IsolationLevel.REPEATABLE_READ, readOnly: true },
+      { mode: { isolationLevel: IsolationLevel.REPEATABLE_READ, readOnly: true } },
     );
     expect(seen.isolation).toEqual({ transaction_isolation: "repeatable read" });
     expect(seen.readOnly).toEqual({ transaction_read_only: "on" });

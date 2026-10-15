@@ -27,6 +27,39 @@ export interface LedgerPageQuery {
   limit: number;
 }
 
+export interface OutboxMessage {
+  id: string;
+  partitionKey: string;
+  eventType: string;
+  payload: string;
+  attempts: number;
+}
+
+export interface OutboxFailure {
+  id: string;
+  error: string;
+  retryInMs: number;
+}
+
+export interface OutboxBatch {
+  messages: OutboxMessage[];
+  markPublished(ids: string[]): Promise<void>;
+  markFailed(failures: OutboxFailure[]): Promise<void>;
+}
+
+export abstract class OutboxStore {
+  abstract withBatch<T>(limit: number, work: (batch: OutboxBatch) => Promise<T>): Promise<T>;
+}
+
+export interface SendFailure {
+  id: string;
+  error: string;
+}
+
+export abstract class EventSender {
+  abstract send(messages: OutboxMessage[]): Promise<SendFailure[]>;
+}
+
 export type DomainEvent = IntegrationEvent<{ walletId: string }>;
 
 export interface OpeningRecord {

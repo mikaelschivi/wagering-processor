@@ -15,13 +15,19 @@ export function insert(exec: Exec, table: string, row: Record<string, unknown>) 
   );
 }
 
+export interface TransactionOptions {
+  budgetMs?: number;
+  mode?: { isolationLevel: IsolationLevel; readOnly: boolean };
+  idleInTxMs?: number;
+}
+
 export function inTransaction<T>(
   orm: MikroORM,
   config: AppConfig,
   work: (exec: Exec) => Promise<T>,
-  budgetMs = Number.POSITIVE_INFINITY,
-  mode: { isolationLevel: IsolationLevel; readOnly: boolean } | undefined = undefined,
+  options: TransactionOptions = {},
 ): Promise<T> {
+  const { budgetMs = Number.POSITIVE_INFINITY, mode, idleInTxMs = config.TX_IDLE_IN_TX_TIMEOUT_MS } = options;
   const within = (limitMs: number) => Math.max(1, Math.min(limitMs, Math.floor(budgetMs)));
   return orm.em.fork().transactional(async (em) => {
     const exec: Exec = (sql, params) => (em as SqlEntityManager).execute(sql, params);
@@ -32,7 +38,7 @@ export function inTransaction<T>(
       [
         `${within(config.TX_LOCK_TIMEOUT_MS)}ms`,
         `${within(config.TX_STATEMENT_TIMEOUT_MS)}ms`,
-        `${config.TX_IDLE_IN_TX_TIMEOUT_MS}ms`,
+        `${idleInTxMs}ms`,
       ],
     );
     return work(exec);

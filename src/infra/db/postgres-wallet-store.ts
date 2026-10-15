@@ -109,8 +109,7 @@ export class PostgresWalletStore extends WalletStore {
           ...(tail && { tailBalance: Money.fromDb(tail.balance_after as string, currency) }),
         };
       },
-      undefined,
-      { isolationLevel: IsolationLevel.REPEATABLE_READ, readOnly: true },
+      { mode: { isolationLevel: IsolationLevel.REPEATABLE_READ, readOnly: true } },
     );
   }
 

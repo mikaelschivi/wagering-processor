@@ -252,7 +252,7 @@ export class PostgresWagerStore extends WagerStore {
           committing = true;
           return result;
         },
-        options.budgetMs,
+        { budgetMs: options.budgetMs },
       );
     } catch (error) {
       throw translateDbError(error, committing);
