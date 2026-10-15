@@ -1,24 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { CreateWallet } from "../../src/application/create-wallet";
-import { Clock, IdGenerator, WalletStore } from "../../src/application/ports";
+import { WalletStore } from "../../src/application/ports";
 import { InvalidMoneyError, WalletAlreadyExistsError } from "../../src/domain/errors";
 import type { Wallet, WalletLedgerEntry } from "../../src/domain/wallet";
+import { FixedClock, SequentialIds } from "../helpers/fakes";
 import { InMemoryWalletStore } from "../helpers/in-memory-wallet-store";
 
-const now = new Date("2026-02-03T04:05:06.000Z");
-
-class FixedClock extends Clock {
-  now() {
-    return now;
-  }
-}
-
-class SequentialIds extends IdGenerator {
-  private n = 0;
-  next() {
-    return `id-${++this.n}`;
-  }
-}
+const now = new FixedClock().now();
 
 class RecordingStore extends WalletStore {
   readonly inner = new InMemoryWalletStore();

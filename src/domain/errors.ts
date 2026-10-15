@@ -1,8 +1,8 @@
 export abstract class DomainError extends Error {
   abstract readonly code: string;
 
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = new.target.name;
   }
 }
@@ -59,4 +59,20 @@ export class InvalidWagerTransactionError extends DomainError {
 
 export class InvalidTransactionStateError extends DomainError {
   readonly code = "INVALID_TRANSACTION_STATE";
+}
+
+export class IdempotencyKeyConflictError extends DomainError {
+  readonly code = "IDEMPOTENCY_KEY_CONFLICT";
+}
+
+export class ExternalTransactionIdConflictError extends DomainError {
+  readonly code = "EXTERNAL_TRANSACTION_ID_CONFLICT";
+}
+
+export class WalletNotFoundError extends DomainError {
+  readonly code = "WALLET_NOT_FOUND";
+}
+
+export class TransientInfrastructureError extends DomainError {
+  readonly code = "TRANSIENT_FAILURE";
 }
