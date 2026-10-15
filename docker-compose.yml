@@ -1,5 +1,37 @@
 name: wagering
 
+x-app: &app
+  image: wagering-app:local
+  pull_policy: never
+  environment: &app-environment
+    PORT: "3000"
+    DB_HOST: postgres
+    DB_PORT: "5432"
+    DB_NAME: wagering
+    DB_APP_USER: wagering_app
+    DB_APP_PASSWORD: ${DB_APP_PASSWORD:-wagering_app_dev}
+    DB_OWNER_USER: wagering_owner
+    DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:-wagering_owner_dev}
+    AWS_ENDPOINT_URL: http://localstack:4566
+    AWS_REGION: ${AWS_REGION:-us-east-1}
+    AWS_ACCESS_KEY_ID: test
+    AWS_SECRET_ACCESS_KEY: test
+
+x-instance: &instance
+  <<: *app
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+    create-queues:
+      condition: service_completed_successfully
+  stop_grace_period: 30s
+  healthcheck:
+    test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health/ready').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+    interval: 5s
+    timeout: 5s
+    retries: 12
+    start_period: 5s
+
 services:
   postgres:
     image: postgres:16.4
@@ -31,6 +63,38 @@ services:
       interval: 3s
       timeout: 5s
       retries: 20
+
+  migrate:
+    <<: *app
+    build: .
+    command: ["bun", "scripts/migrate.ts", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  create-queues:
+    <<: *app
+    command: ["bun", "scripts/create-queues.ts"]
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: "no"
+
+  app-1:
+    <<: *instance
+    ports:
+      - "3001:3000"
+
+  app-2:
+    <<: *instance
+    ports:
+      - "3002:3000"
+
+  app-3:
+    <<: *instance
+    ports:
+      - "3003:3000"
 
 volumes:
   pgdata:
