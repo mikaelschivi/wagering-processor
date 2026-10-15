@@ -138,6 +138,10 @@ Mudar um estado terminal lança `InvalidTransactionStateError` e o banco também
 
 **Schema.** Três migrations reversíveis, rodadas por comando (nunca no boot) pelo usuário `wagering_owner`. A aplicação usa `wagering_app`, sem DDL e só com `SELECT, INSERT` no ledger.
 
+**Inbox e outbox sem as classes `InboxMessage` e `OutboxMessage`.** O §6.5 do desafio mostra essas classes como esqueleto. Mantive o comportamento, mas as transições (inbox: recebida → processada; outbox: pendente → publicada ou nova tentativa) ficam no SQL e no `OutboxPublisher`, não em objetos de domínio. O motivo é que a garantia vem do banco (`PRIMARY KEY` do inbox, `FOR UPDATE SKIP LOCKED`, triggers) e o agendamento usa o relógio do banco (`now()`), então uma classe só repetiria essas regras em memória.
+
+**Trade-off:** essas duas tabelas ficam menos encapsuladas que `Money`, `Wallet` e `WagerTransaction`. As regras estão cobertas por testes de integração com banco real, e não por testes unitários de uma classe.
+
 ### 3.6 Testes
 
 Integração e concorrência usam **Postgres e LocalStack reais**, e cada arquivo cria o próprio banco e as próprias filas. A suíte de concorrência sobe **processos reais** da aplicação (`bun src/main.ts`) e os derruba com `SIGKILL` e `SIGTERM`.
@@ -233,5 +237,6 @@ Há dois `422`: o resultado de negócio gravado (`application/json`) e o `WALLET
 7. **Sem retenção:** ledger, transações, inbox e outbox só crescem. Banco único, sem réplica nem failover.
 8. **Métricas** por instância, zeradas no restart, com percentis aproximados. Sem dashboard nem OpenTelemetry.
 9. **Testes:** o LocalStack não reproduz o bloqueio de grupo do FIFO real, então os testes conferem o comportamento do consumer, e não a ordem global da fila. Não há teste da imagem Docker, nem de queda e volta do Postgres ou do SQS durante carga. O teste de carga (opcional) não foi feito.
+10. **Inbox e outbox sem classes de domínio:** as regras ficam no SQL e no publisher (seção 3.5), com menos encapsulamento que o resto do domínio.
 
 **O que eu faria a seguir:** integrar o Keycloak, fazer o teste de carga com percentis exatos, adicionar testes de queda e volta do Postgres e do SQS, e um job de retenção para as tabelas que só crescem.
