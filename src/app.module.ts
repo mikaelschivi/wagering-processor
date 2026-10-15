@@ -4,6 +4,7 @@ import type { SQSClient } from "@aws-sdk/client-sqs";
 import { MikroORM } from "@mikro-orm/postgresql";
 import { CreateWallet } from "./application/create-wallet";
 import { OutboxPublisher } from "./application/outbox-publisher";
+import { PendingReferenceWorker } from "./application/pending-reference-worker";
 import { Clock, EventSender, IdGenerator, OutboxStore, ProviderIdentityPort, WagerStore, WalletStore } from "./application/ports";
 import { Reconciliation } from "./application/reconciliation";
 import { ProcessWagerTransaction } from "./application/process-wager-transaction";
@@ -17,6 +18,7 @@ import { WagerTransactionsController, WalletsController } from "./infra/http/con
 import { HealthController, READINESS_CHECKS, type ReadinessCheck } from "./infra/http/health.controller";
 import { ProblemDetailsFilter } from "./infra/http/problem-details.filter";
 import { OutboxRunner } from "./infra/outbox-runner";
+import { ReferenceRunner } from "./infra/reference-runner";
 import { LifecycleState, ResourceCloser, ShutdownCoordinator } from "./infra/shutdown";
 import { ConsumerRunner, consumerLogger, SqsConsumer, WagerMessageHandler } from "./infra/sqs/consumer";
 import { createSqsClient, queueReachable, SQS_CLIENT } from "./infra/sqs/client";
@@ -91,6 +93,21 @@ export class AppModule {
             }),
         },
         OutboxRunner,
+        {
+          provide: PendingReferenceWorker,
+          inject: [WagerStore, IdGenerator, Clock],
+          useFactory: (store: WagerStore, ids: IdGenerator, clock: Clock) =>
+            new PendingReferenceWorker(store, ids, clock, {
+              batch: config.REFERENCE_CLAIM_BATCH,
+              concurrency: config.REFERENCE_PROCESS_CONCURRENCY,
+              leaseS: config.REFERENCE_CLAIM_LEASE_S,
+              intervalMs: config.REFERENCE_WORKER_INTERVAL_MS,
+              ttlMs: config.REFERENCE_TTL_MS,
+              maxFailures: config.REFERENCE_MAX_FAILURES,
+              budgetMs: config.USE_CASE_DEADLINE_MS,
+            }),
+        },
+        ReferenceRunner,
         {
           provide: WagerMessageHandler,
           inject: [ProcessWagerTransaction],

@@ -3,6 +3,7 @@ import type { SQSClient } from "@aws-sdk/client-sqs";
 import { MikroORM } from "@mikro-orm/postgresql";
 import { APP_CONFIG, type AppConfig } from "../config";
 import { OutboxRunner } from "./outbox-runner";
+import { ReferenceRunner } from "./reference-runner";
 import { SQS_CLIENT } from "./sqs/client";
 import { ConsumerRunner } from "./sqs/consumer";
 import { SQS_PRODUCER_CLIENT } from "./sqs/producer";
@@ -21,11 +22,12 @@ export class ShutdownCoordinator implements BeforeApplicationShutdown {
     private readonly state: LifecycleState,
     private readonly consumer: ConsumerRunner,
     private readonly outbox: OutboxRunner,
+    private readonly references: ReferenceRunner,
   ) {}
 
   async beforeApplicationShutdown(): Promise<void> {
     this.state.draining = true;
-    const stopped = Promise.all([this.consumer.stop(), this.outbox.stop()]).then(() => true);
+    const stopped = Promise.all([this.consumer.stop(), this.outbox.stop(), this.references.stop()]).then(() => true);
     const timedOut = new Promise<false>((resolve) => setTimeout(() => resolve(false), this.config.SHUTDOWN_DRAIN_MS));
     if (!(await Promise.race([stopped, timedOut]))) {
       this.logger.error(`in-flight work did not finish within ${this.config.SHUTDOWN_DRAIN_MS}ms`);

@@ -3,6 +3,7 @@ import { Logger, ServiceUnavailableException } from "@nestjs/common";
 import type { AppConfig } from "../../src/config";
 import { HealthController } from "../../src/infra/http/health.controller";
 import type { OutboxRunner } from "../../src/infra/outbox-runner";
+import type { ReferenceRunner } from "../../src/infra/reference-runner";
 import { LifecycleState, ShutdownCoordinator } from "../../src/infra/shutdown";
 import type { ConsumerRunner } from "../../src/infra/sqs/consumer";
 
@@ -11,25 +12,29 @@ beforeAll(() => Logger.overrideLogger(false));
 const config = (drainMs: number) => ({ SHUTDOWN_DRAIN_MS: drainMs }) as AppConfig;
 
 function runners(stopConsumer: () => Promise<void>, stopOutbox: () => Promise<void>) {
-  return { consumer: { stop: stopConsumer } as ConsumerRunner, outbox: { stop: stopOutbox } as OutboxRunner };
+  return {
+    consumer: { stop: stopConsumer } as ConsumerRunner,
+    outbox: { stop: stopOutbox } as OutboxRunner,
+    references: { stop: async () => {} } as ReferenceRunner,
+  };
 }
 
 describe("ShutdownCoordinator", () => {
   test("marks the instance as draining before it stops any work", async () => {
     const state = new LifecycleState();
     const seen: boolean[] = [];
-    const { consumer, outbox } = runners(
+    const { consumer, outbox, references } = runners(
       async () => void seen.push(state.draining),
       async () => void seen.push(state.draining),
     );
-    await new ShutdownCoordinator(config(1000), state, consumer, outbox).beforeApplicationShutdown();
+    await new ShutdownCoordinator(config(1000), state, consumer, outbox, references).beforeApplicationShutdown();
     expect(seen).toEqual([true, true]);
   });
 
   test("waits for both the consumer and the outbox to finish", async () => {
     let consumerDone = false;
     let outboxDone = false;
-    const { consumer, outbox } = runners(
+    const { consumer, outbox, references } = runners(
       async () => {
         await Bun.sleep(50);
         consumerDone = true;
@@ -39,17 +44,30 @@ describe("ShutdownCoordinator", () => {
         outboxDone = true;
       },
     );
-    await new ShutdownCoordinator(config(2000), new LifecycleState(), consumer, outbox).beforeApplicationShutdown();
+    await new ShutdownCoordinator(config(2000), new LifecycleState(), consumer, outbox, references).beforeApplicationShutdown();
     expect([consumerDone, outboxDone]).toEqual([true, true]);
   });
 
+  test("also waits for the reference worker", async () => {
+    let done = false;
+    const { consumer, outbox } = runners(async () => {}, async () => {});
+    const references = {
+      stop: async () => {
+        await Bun.sleep(80);
+        done = true;
+      },
+    } as ReferenceRunner;
+    await new ShutdownCoordinator(config(2000), new LifecycleState(), consumer, outbox, references).beforeApplicationShutdown();
+    expect(done).toBe(true);
+  });
+
   test("gives up after the drain time when in-flight work does not finish", async () => {
-    const { consumer, outbox } = runners(
+    const { consumer, outbox, references } = runners(
       () => new Promise(() => {}),
       async () => {},
     );
     const startedAt = Date.now();
-    await new ShutdownCoordinator(config(150), new LifecycleState(), consumer, outbox).beforeApplicationShutdown();
+    await new ShutdownCoordinator(config(150), new LifecycleState(), consumer, outbox, references).beforeApplicationShutdown();
     const elapsed = Date.now() - startedAt;
     expect(elapsed).toBeGreaterThanOrEqual(140);
     expect(elapsed).toBeLessThan(1000);

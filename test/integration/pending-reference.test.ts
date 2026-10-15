@@ -1,4 +1,7 @@
+import "reflect-metadata";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { NestFactory } from "@nestjs/core";
+import { AppModule } from "../../src/app.module";
 import {
   PendingReferenceWorker,
   type PendingReferenceOptions,
@@ -334,4 +337,62 @@ describe("expiry and rescheduling", () => {
     expect(counts).toEqual([1, 2]);
     expect(await row(win.transactionId)).toMatchObject({ consecutive_failures: 2 });
   });
+});
+
+describe("the reference-worker role", () => {
+  const post = (baseUrl: string, path: string, body: unknown, key?: string) =>
+    fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(key && { "idempotency-key": key }) },
+      body: JSON.stringify(body),
+    });
+
+  async function scenario(roles: ("api" | "reference-worker")[]) {
+    const app = await NestFactory.create(
+      AppModule.forRoot({ ...db.config, APP_ROLES: roles, REFERENCE_WORKER_INTERVAL_MS: 50, AWS_ENDPOINT_URL: "http://127.0.0.1:1" }),
+      { logger: false },
+    );
+    await app.listen(0);
+    try {
+      const baseUrl = await app.getUrl();
+      const playerId = crypto.randomUUID();
+      const created = await post(baseUrl, "/wallets", { playerId, initialBalance: { amount: "100.00", currency: "BRL" } });
+      const { id: walletId } = (await created.json()) as { id: string };
+      const wager = (external: string, kind: string, extra: Record<string, unknown> = {}) => ({
+        providerId: "provider-a",
+        externalTransactionId: external,
+        playerId,
+        walletId,
+        roundId: "r",
+        gameId: "g",
+        kind,
+        money: { amount: "10.00", currency: "BRL" },
+        ...extra,
+      });
+      const refund = `refund-${walletId}`;
+      const bet = `bet-${walletId}`;
+      const pending = await post(baseUrl, "/wagering/transactions", wager(refund, "REFUND", { referenceExternalTransactionId: bet }), refund);
+      expect(pending.status).toBe(202);
+      await post(baseUrl, "/wagering/transactions", wager(bet, "BET"), bet);
+      const deadline = Date.now() + 5000;
+      let status = "";
+      while (Date.now() < deadline) {
+        const lookup = await fetch(`${baseUrl}/providers/provider-a/wagering/transactions/${refund}`);
+        status = ((await lookup.json()) as { status: string }).status;
+        if (status !== "PENDING_REFERENCE") break;
+        await Bun.sleep(100);
+      }
+      return status;
+    } finally {
+      await app.close();
+    }
+  }
+
+  test("an instance with the role resolves a waiting REFUND on its own", async () => {
+    expect(await scenario(["api", "reference-worker"])).toBe("PROCESSED");
+  }, 30_000);
+
+  test("an instance without the role leaves it pending", async () => {
+    expect(await scenario(["api"])).toBe("PENDING_REFERENCE");
+  }, 30_000);
 });

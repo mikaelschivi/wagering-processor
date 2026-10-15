@@ -3,10 +3,12 @@ import { MikroORM } from "@mikro-orm/postgresql";
 import type { AppConfig } from "../../config";
 import { Migration0001Wallets } from "./migrations/Migration0001Wallets";
 import { Migration0002Messaging } from "./migrations/Migration0002Messaging";
+import { Migration0003TransactionGuard } from "./migrations/Migration0003TransactionGuard";
 
 export const MIGRATIONS = [
   { name: "Migration0001Wallets", class: Migration0001Wallets },
   { name: "Migration0002Messaging", class: Migration0002Messaging },
+  { name: "Migration0003TransactionGuard", class: Migration0003TransactionGuard },
 ];
 
 function connection(config: AppConfig, user: string, password: string, dbName: string) {
