@@ -10,6 +10,7 @@ import {
 } from "@aws-sdk/client-sqs";
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import { z } from "zod";
+import { addLogContext, runWithContext } from "../../observability";
 import type { Clock } from "../../application/ports";
 import { APP_CONFIG, type AppConfig } from "../../config";
 import type { ProcessWagerTransaction } from "../../application/process-wager-transaction";
@@ -90,12 +91,31 @@ export function classify(error: unknown): Disposition {
 }
 
 export class WagerMessageHandler {
+  private readonly logger = new Logger(WagerMessageHandler.name);
+
   constructor(private readonly processWager: ProcessWagerTransaction) {}
 
   async handle(body: string): Promise<Disposition> {
+    const disposition = await this.process(body);
+    const { action } = disposition;
+    this.logger.log({
+      message: "message handled",
+      action,
+      ...(disposition.action !== "ack" && { code: disposition.code }),
+    });
+    return disposition;
+  }
+
+  private async process(body: string): Promise<Disposition> {
     try {
       const message = parse(body);
-      await this.processWager.execute({
+      addLogContext({
+        correlationId: message.messageId,
+        messageId: message.messageId,
+        walletId: message.request.walletId,
+        providerId: message.request.providerId,
+      });
+      const result = await this.processWager.execute({
         request: message.request,
         actor: { kind: "trusted-internal" },
         idempotencyKey: message.idempotencyKey,
@@ -103,6 +123,7 @@ export class WagerMessageHandler {
         causationId: message.messageId,
         inbox: { consumerName: CONSUMER_NAME, messageId: message.messageId, messageHash: message.messageHash },
       });
+      addLogContext({ transactionId: result.transactionId });
       return { action: "ack" };
     } catch (error) {
       return classify(error);
@@ -194,7 +215,7 @@ export class SqsConsumer {
         await this.release(group.slice(index));
         return;
       }
-      const disposition = await this.handler.handle(message.body);
+      const disposition = await runWithContext({}, () => this.handler.handle(message.body));
       const proceed = await this.settle(message, disposition);
       if (!proceed) {
         await this.release(group.slice(index + 1));

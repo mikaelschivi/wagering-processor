@@ -7,12 +7,6 @@ export class RequestValidationError extends Error {
   }
 }
 
-const CORRELATION_ID = /^[A-Za-z0-9._:-]{1,128}$/;
-
-export function correlationIdFrom(header: string | undefined): string {
-  return header && CORRELATION_ID.test(header) ? header : Bun.randomUUIDv7();
-}
-
 export class MissingIdempotencyKeyError extends Error {
   constructor() {
     super("Idempotency-Key header is required");

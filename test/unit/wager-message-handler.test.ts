@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { Logger } from "@nestjs/common";
 import { InvariantDbError, TransientDbError } from "../../src/application/ports";
 import { ProcessWagerTransaction } from "../../src/application/process-wager-transaction";
 import { Money } from "../../src/domain/money";
 import { Wallet } from "../../src/domain/wallet";
 import { CONSUMER_NAME, MAX_MESSAGE_BYTES, WagerMessageHandler } from "../../src/infra/sqs/consumer";
+import { JsonLogger, runWithContext } from "../../src/observability";
 import { FixedClock, SequentialIds } from "../helpers/fakes";
 import { InMemoryWagerStore } from "../helpers/in-memory-wager-store";
 
@@ -180,5 +182,47 @@ describe("WagerMessageHandler: transient and unexpected failures are retried", (
     expect(await handler.handle(message())).toEqual({ action: "retry", code: "INTERNAL_ERROR" });
     store.failNext(new TypeError("bug"));
     expect(await handler.handle(message())).toEqual({ action: "retry", code: "INTERNAL_ERROR" });
+  });
+});
+
+describe("WagerMessageHandler: logging", () => {
+  function logged() {
+    const lines: Record<string, unknown>[] = [];
+    Logger.overrideLogger(new JsonLogger((line) => lines.push(JSON.parse(line))));
+    return lines;
+  }
+
+  test("an acked message is logged with its correlation fields and no financial data", async () => {
+    const lines = logged();
+    try {
+      const { handler } = setup();
+      await runWithContext({}, () => handler.handle(message()));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatchObject({
+        message: "message handled",
+        action: "ack",
+        correlationId: "msg-1",
+        messageId: "msg-1",
+        walletId,
+        providerId: "provider-a",
+        transactionId: expect.any(String),
+      });
+      expect(JSON.stringify(lines)).not.toContain("25.00");
+      expect(JSON.stringify(lines)).not.toContain("75.00");
+    } finally {
+      Logger.overrideLogger(false);
+    }
+  });
+
+  test("a dead-lettered message is logged with its code and nothing from the body", async () => {
+    const lines = logged();
+    try {
+      const { handler } = setup();
+      await runWithContext({}, () => handler.handle(message({ money: { amount: "999.99", currency: "BRL" }, walletId: "nope" })));
+      expect(lines[0]).toMatchObject({ action: "dlq", code: "VALIDATION_ERROR" });
+      expect(JSON.stringify(lines)).not.toContain("999.99");
+    } finally {
+      Logger.overrideLogger(false);
+    }
   });
 });

@@ -1,11 +1,12 @@
 import "reflect-metadata";
-import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { ConfigError, loadConfig } from "./config";
+import { createApp } from "./infra/http/setup";
+import { JsonLogger } from "./observability";
 
 async function bootstrap() {
   const config = loadConfig(process.env);
-  const app = await NestFactory.create(AppModule.forRoot(config));
+  const app = await createApp(AppModule.forRoot(config), { logger: new JsonLogger() });
   app.enableShutdownHooks();
   await app.listen(config.PORT);
 }

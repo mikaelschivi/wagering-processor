@@ -8,9 +8,9 @@ import { NotFoundError } from "../../domain/errors";
 import { Money } from "../../domain/money";
 import { WagerTransactionStatus, type WagerTransaction } from "../../domain/wager-transaction";
 import type { Wallet, WalletLedgerEntry } from "../../domain/wallet";
+import { addLogContext, currentCorrelationId } from "../../observability";
 import { AdminRoute, CurrentPrincipal, ProviderRoute } from "./auth";
 import {
-  correlationIdFrom,
   createWalletBody,
   encodeCursor,
   ledgerQuery,
@@ -58,16 +58,18 @@ export class WalletsController {
   @Post()
   @AdminRoute()
   @HttpCode(201)
-  async create(@Body() body: unknown, @Headers("x-correlation-id") correlationHeader: string | undefined) {
+  async create(@Body() body: unknown) {
     const command = validate(createWalletBody(this.config.SUPPORTED_CURRENCIES), body);
-    const correlationId = correlationIdFrom(correlationHeader);
-    return walletView(await this.createWallet.execute({ ...command, correlationId }));
+    const wallet = await this.createWallet.execute({ ...command, correlationId: currentCorrelationId() });
+    addLogContext({ walletId: wallet.id });
+    return walletView(wallet);
   }
 
   @Get(":walletId")
   @ProviderRoute()
   async get(@Param() params: unknown) {
     const { walletId } = validate(walletParams, params);
+    addLogContext({ walletId });
     const wallet = await this.store.findById(walletId);
     if (!wallet) throw new NotFoundError("wallet not found");
     return walletView(wallet);
@@ -78,6 +80,7 @@ export class WalletsController {
   @HttpCode(200)
   async reconcile(@Param() params: unknown) {
     const { walletId } = validate(walletParams, params);
+    addLogContext({ walletId });
     const report = await this.reconciliation.execute(walletId);
     if (!report.consistent) {
       this.logger.error(`reconciliation mismatch walletId=${walletId} issues=${report.issues.join(",")}`);
@@ -89,6 +92,7 @@ export class WalletsController {
   @ProviderRoute()
   async ledger(@Param() params: unknown, @Query() query: unknown) {
     const { walletId } = validate(walletParams, params);
+    addLogContext({ walletId });
     const { limit, beforeVersion } = validate(ledgerQuery, query);
     if (!(await this.store.findById(walletId))) throw new NotFoundError("wallet not found");
     const rows = await this.store.ledgerPage(walletId, { limit: limit + 1, ...(beforeVersion && { beforeVersion }) });
@@ -146,20 +150,20 @@ export class WagerTransactionsController {
   async submit(
     @Body() body: unknown,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
-    @Headers("x-correlation-id") correlationHeader: string | undefined,
     @CurrentPrincipal() actor: Principal,
     @Res({ passthrough: true }) response: ResponseHeaders,
   ): Promise<WagerResult> {
     const key = requireIdempotencyKey(idempotencyKey);
     const { money, ...fields } = validate(wagerBody, body);
-    const correlationId = correlationIdFrom(correlationHeader);
+    const correlationId = currentCorrelationId();
+    addLogContext({ walletId: fields.walletId, providerId: fields.providerId });
     const result = await this.processWager.execute({
       request: { ...fields, money: Money.from(money) },
       actor,
       idempotencyKey: key,
       correlationId,
     });
-    response.setHeader("x-correlation-id", correlationId);
+    addLogContext({ transactionId: result.transactionId });
     response.status(SUBMIT_STATUS[result.status]);
     return result;
   }

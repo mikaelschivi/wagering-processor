@@ -1,8 +1,9 @@
-import { Module, type DynamicModule } from "@nestjs/common";
+import { type DynamicModule, type MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import type { SQSClient } from "@aws-sdk/client-sqs";
 import { MikroORM } from "@mikro-orm/postgresql";
 import { CreateWallet } from "./application/create-wallet";
+import { correlationMiddleware } from "./observability";
 import { OutboxPublisher } from "./application/outbox-publisher";
 import { PendingReferenceWorker } from "./application/pending-reference-worker";
 import { Clock, EventSender, IdGenerator, OutboxStore, ProviderIdentityPort, WagerStore, WalletStore } from "./application/ports";
@@ -26,7 +27,11 @@ import { createProducerClient, SQS_PRODUCER_CLIENT, SqsEventSender } from "./inf
 import { SystemClock, UuidV7Generator } from "./infra/system";
 
 @Module({})
-export class AppModule {
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(correlationMiddleware()).forRoutes("*");
+  }
+
   static forRoot(config: AppConfig, identity: ProviderIdentityPort = new AnonymousDevIdentity()): DynamicModule {
     return {
       module: AppModule,

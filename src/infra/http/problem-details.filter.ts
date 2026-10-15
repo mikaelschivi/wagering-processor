@@ -17,7 +17,8 @@ import {
   WalletAlreadyExistsError,
   WalletNotFoundError,
 } from "../../domain/errors";
-import { correlationIdFrom, MissingIdempotencyKeyError, RequestValidationError } from "./schemas";
+import { correlationIdFrom, currentCorrelationId, currentLogContext } from "../../observability";
+import { MissingIdempotencyKeyError, RequestValidationError } from "./schemas";
 
 interface HttpRequest {
   header(name: string): string | undefined;
@@ -146,7 +147,7 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const request = http.getRequest<HttpRequest>();
     const response = http.getResponse<HttpResponse>();
 
-    const correlationId = correlationIdFrom(request.header("x-correlation-id"));
+    const correlationId = currentLogContext().correlationId ?? correlationIdFrom(request.header("x-correlation-id"));
     if (error instanceof HttpException && !isMapped(error)) {
       const body = error.getResponse();
       response.status(error.getStatus()).json(
