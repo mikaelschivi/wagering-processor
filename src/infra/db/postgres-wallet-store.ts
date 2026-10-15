@@ -5,21 +5,10 @@ import type { AppConfig } from "../../config";
 import { WalletAlreadyExistsError } from "../../domain/errors";
 import { Money } from "../../domain/money";
 import { Wallet, type WalletLedgerEntry } from "../../domain/wallet";
-import { type Exec, inTransaction } from "./transaction";
+import { inTransaction, insert, isoUtc } from "./transaction";
 
 const INTERNAL_PROVIDER_ID = "__internal__";
 const WALLET_UNIQUE = "ux_wallet_player_currency";
-
-const isoUtc = (column: string) =>
-  `to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as ${column}`;
-
-function insert(exec: Exec, table: string, row: Record<string, unknown>) {
-  const columns = Object.keys(row);
-  return exec(
-    `insert into ${table} (${columns.join(", ")}) values (${columns.map(() => "?").join(", ")})`,
-    Object.values(row),
-  );
-}
 
 export class PostgresWalletStore extends WalletStore {
   constructor(
