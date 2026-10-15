@@ -18,6 +18,7 @@ import { HealthController, READINESS_CHECKS, type ReadinessCheck } from "./infra
 import { ProblemDetailsFilter } from "./infra/http/problem-details.filter";
 import { OutboxRunner } from "./infra/outbox-runner";
 import { ResourceCloser } from "./infra/shutdown";
+import { ConsumerRunner, consumerLogger, SqsConsumer, WagerMessageHandler } from "./infra/sqs/consumer";
 import { createSqsClient, queueReachable, SQS_CLIENT } from "./infra/sqs/client";
 import { createProducerClient, SQS_PRODUCER_CLIENT, SqsEventSender } from "./infra/sqs/producer";
 import { SystemClock, UuidV7Generator } from "./infra/system";
@@ -90,6 +91,18 @@ export class AppModule {
             }),
         },
         OutboxRunner,
+        {
+          provide: WagerMessageHandler,
+          inject: [ProcessWagerTransaction],
+          useFactory: (useCase: ProcessWagerTransaction) => new WagerMessageHandler(useCase),
+        },
+        {
+          provide: SqsConsumer,
+          inject: [SQS_CLIENT, WagerMessageHandler, Clock],
+          useFactory: (sqs: SQSClient, handler: WagerMessageHandler, clock: Clock) =>
+            new SqsConsumer(sqs, handler, config, clock, consumerLogger()),
+        },
+        ConsumerRunner,
         {
           provide: READINESS_CHECKS,
           inject: [MikroORM, SQS_CLIENT],

@@ -50,6 +50,8 @@ const schema = z.object({
   REFERENCE_PROCESS_CONCURRENCY: positiveInt(defaults.REFERENCE_PROCESS_CONCURRENCY),
   REFERENCE_CLAIM_LEASE_S: positiveInt(defaults.REFERENCE_CLAIM_LEASE_S),
   OUTBOX_SQS_REQUEST_TIMEOUT_MS: positiveInt(defaults.OUTBOX_SQS_REQUEST_TIMEOUT_MS),
+  SQS_WAIT_TIME_S: z.coerce.number().int().min(0).max(20).default(defaults.SQS_WAIT_TIME_S),
+  SQS_CONSUMER_CONCURRENCY: positiveInt(defaults.SQS_CONSUMER_CONCURRENCY),
   OUTBOX_INTERVAL_MS: positiveInt(defaults.OUTBOX_INTERVAL_MS),
   OUTBOX_BATCH_SIZE: positiveInt(defaults.OUTBOX_BATCH_SIZE),
   OUTBOX_TX_IDLE_TIMEOUT_MS: positiveInt(defaults.OUTBOX_TX_IDLE_TIMEOUT_MS),
