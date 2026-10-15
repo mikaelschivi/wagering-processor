@@ -11,7 +11,7 @@ import {
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import { z } from "zod";
 import { addLogContext, runWithContext } from "../../observability";
-import type { Clock } from "../../application/ports";
+import { type Clock, type Metrics, NullMetrics } from "../../application/ports";
 import { APP_CONFIG, type AppConfig } from "../../config";
 import type { ProcessWagerTransaction } from "../../application/process-wager-transaction";
 import {
@@ -166,6 +166,7 @@ export class SqsConsumer {
     private readonly clock: Clock,
     private readonly log: (message: string) => void,
     private readonly random: () => number = Math.random,
+    private readonly metrics: Metrics = new NullMetrics(),
   ) {}
 
   async run(signal: AbortSignal): Promise<void> {
@@ -230,6 +231,7 @@ export class SqsConsumer {
   }
 
   private async settle(message: Received, disposition: Disposition): Promise<boolean> {
+    this.metrics.count("consumer_messages_total", { action: disposition.action });
     if (disposition.action === "ack") {
       await this.delete(message);
       return true;
@@ -258,6 +260,7 @@ export class SqsConsumer {
           },
         }),
       );
+      this.metrics.count("dlq_messages_total", { code: errorCode });
       return true;
     } catch (error) {
       this.log(`dlq send failed: ${error instanceof Error ? error.name : "unknown error"}`);
@@ -300,6 +303,7 @@ export class SqsConsumer {
     try {
       await work();
     } catch (error) {
+      this.metrics.count("sqs_call_failures_total", { call: what });
       this.log(`${what} failed: ${error instanceof Error ? error.name : "unknown error"}`);
     }
   }

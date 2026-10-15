@@ -3,6 +3,20 @@ import type { Money } from "../domain/money";
 import type { WagerTransaction } from "../domain/wager-transaction";
 import type { Wallet, WalletLedgerEntry } from "../domain/wallet";
 
+export type Labels = Record<string, string>;
+
+export abstract class Metrics {
+  abstract count(name: string, labels?: Labels, by?: number): void;
+  abstract observe(name: string, seconds: number, labels?: Labels): void;
+  abstract gauge(name: string, value: number, labels?: Labels): void;
+}
+
+export class NullMetrics extends Metrics {
+  count(): void {}
+  observe(): void {}
+  gauge(): void {}
+}
+
 export abstract class Clock {
   abstract now(): Date;
   abstract sleep(ms: number): Promise<void>;

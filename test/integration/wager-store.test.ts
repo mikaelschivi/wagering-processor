@@ -8,6 +8,7 @@ import { WagerTransaction, WagerTransactionKind, WagerTransactionStatus } from "
 import { Wallet } from "../../src/domain/wallet";
 import { PostgresWagerStore } from "../../src/infra/db/postgres-wager-store";
 import { PostgresWalletStore } from "../../src/infra/db/postgres-wallet-store";
+import { InMemoryMetrics } from "../../src/observability";
 import { SystemClock, UuidV7Generator } from "../../src/infra/system";
 import { createTestDatabase, type TestDatabase } from "../helpers/db";
 import { openingRecord } from "../helpers/fakes";
@@ -373,5 +374,36 @@ describe("outbox in the same transaction", () => {
     expect(await walletRow(wallet.id)).toMatchObject({ balance: "100.00", version: 1 });
     expect(await countWhere("wallet_ledger_entries", "transaction_id", tx.id)).toBe(0);
     expect(await countWhere("outbox_messages", "aggregate_id", tx.id)).toBe(0);
+  });
+});
+
+describe("lock wait metric", () => {
+  test("the time spent waiting for the wallet lock is recorded", async () => {
+    const metrics = new InMemoryMetrics();
+    const measured = new PostgresWagerStore(db.app, db.config, metrics);
+    const wallet = await openWallet("100.00");
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let locked!: () => void;
+    const holding = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const holder = store.runLocked(wallet.id, { budgetMs: 5000 }, async () => {
+      locked();
+      await held;
+    });
+    await holding;
+
+    const waiter = measured.runLocked(wallet.id, { budgetMs: 5000 }, async () => "done");
+    await Bun.sleep(300);
+    release();
+    await holder;
+    expect(await waiter).toBe("done");
+
+    expect(metrics.samples("wallet_lock_wait_seconds")).toBe(1);
+    const [series] = Object.values(metrics.snapshot().histograms);
+    expect(series!.max).toBeGreaterThan(0.2);
   });
 });

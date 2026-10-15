@@ -5,6 +5,8 @@ import {
   type InboxRecord,
   InvariantDbError,
   type LockedPending,
+  type Metrics,
+  NullMetrics,
   type PendingReferenceItem,
   type LockOptions,
   TransientDbError,
@@ -276,6 +278,7 @@ export class PostgresWagerStore extends WagerStore {
   constructor(
     private readonly orm: MikroORM,
     private readonly config: AppConfig,
+    private readonly metrics: Metrics = new NullMetrics(),
   ) {
     super();
   }
@@ -329,7 +332,9 @@ export class PostgresWagerStore extends WagerStore {
         this.orm,
         this.config,
         async (exec) => {
+          const lockStartedAt = performance.now();
           const [walletRow] = await exec(`select ${WALLET_COLUMNS} from wallets where id = ? for update`, [walletId]);
+          this.metrics.observe("wallet_lock_wait_seconds", (performance.now() - lockStartedAt) / 1000);
           const result = await work({
             lockPending: (transactionId, ttlMs) => lockPending(exec, transactionId, ttlMs),
             saveResolved: (change, at) => resolvePending(exec, change, at),

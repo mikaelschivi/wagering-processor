@@ -13,6 +13,8 @@ import {
   type Clock,
   type DomainEvent,
   type IdGenerator,
+  type Metrics,
+  NullMetrics,
   type PendingReferenceItem,
   TransientDbError,
   UniqueRaceError,
@@ -55,6 +57,7 @@ export class PendingReferenceWorker {
     private readonly clock: Clock,
     private readonly options: PendingReferenceOptions,
     private readonly random: () => number = Math.random,
+    private readonly metrics: Metrics = new NullMetrics(),
   ) {}
 
   async runOnce(): Promise<WorkerReport> {
@@ -70,7 +73,11 @@ export class PendingReferenceWorker {
     };
     const queue = [...items];
     const workers = Array.from({ length: Math.min(this.options.concurrency, queue.length) }, async () => {
-      for (let item = queue.shift(); item !== undefined; item = queue.shift()) outcomes[await this.process(item)]++;
+      for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
+        const outcome = await this.process(item);
+        outcomes[outcome]++;
+        this.metrics.count("reference_worker_total", { outcome });
+      }
     });
     await Promise.all(workers);
     return { claimed: items.length, outcomes };

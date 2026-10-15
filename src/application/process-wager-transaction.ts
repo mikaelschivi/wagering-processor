@@ -1,4 +1,5 @@
 import {
+  DomainError,
   ExternalTransactionIdConflictError,
   type FailureCode,
   ForbiddenProviderError,
@@ -28,6 +29,8 @@ import {
   type Clock,
   type IdGenerator,
   type InboxEntry,
+  type Metrics,
+  NullMetrics,
   type Principal,
   TransientDbError,
   UniqueRaceError,
@@ -55,6 +58,8 @@ export interface RetryPolicy {
   jitterMaxMs: number;
   random: () => number;
 }
+
+const LOCK_CONFLICTS = ["40P01", "55P03", "40001"];
 
 const isRetryable = (error: unknown) =>
   error instanceof TransientDbError || error instanceof UniqueRaceError || error instanceof UnknownCommitOutcomeError;
@@ -109,6 +114,7 @@ export class ProcessWagerTransaction {
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
     private readonly retry: RetryPolicy,
+    private readonly metrics: Metrics = new NullMetrics(),
   ) {
     if (retry.maxAttempts < 1 || retry.jitterMinMs > retry.jitterMaxMs || retry.deadlineMs <= 0) {
       throw new Error("invalid retry policy");
@@ -116,6 +122,25 @@ export class ProcessWagerTransaction {
   }
 
   async execute(command: ProcessWagerCommand): Promise<WagerResult> {
+    const startedAt = performance.now();
+    const observed = { inboxDuplicate: false };
+    try {
+      const result = await this.run(command, observed);
+      if (result.idempotentReplay) this.metrics.count("idempotent_replays_total");
+      else this.metrics.count("wager_transactions_total", { status: result.status, kind: command.request.kind });
+      if (observed.inboxDuplicate) this.metrics.count("inbox_duplicates_total");
+      return result;
+    } catch (error) {
+      if (error instanceof DomainError) this.metrics.count("request_errors_total", { code: error.code });
+      throw error;
+    } finally {
+      this.metrics.observe("processing_seconds", (performance.now() - startedAt) / 1000, {
+        source: command.inbox ? "sqs" : "http",
+      });
+    }
+  }
+
+  private async run(command: ProcessWagerCommand, observed: { inboxDuplicate: boolean }): Promise<WagerResult> {
     const { request } = command;
     assertCanActAs(command.actor, request.providerId);
     const payloadHash = hashPayload({ ...request, money: request.money.toJSON() });
@@ -124,9 +149,10 @@ export class ProcessWagerTransaction {
     for (let attempt = 1; ; attempt++) {
       const remainingMs = this.retry.deadlineMs - (this.clock.now().getTime() - startedAt);
       try {
-        return await this.attempt(command, payloadHash, remainingMs);
+        return await this.attempt(command, payloadHash, remainingMs, observed);
       } catch (error) {
         if (!isRetryable(error)) throw error;
+        this.countRetry(error);
         const pauseMs = this.pause();
         if (attempt >= this.retry.maxAttempts || remainingMs - pauseMs <= 0) {
           throw new TransientInfrastructureError("the request could not be completed, retry with the same key", {
@@ -138,13 +164,26 @@ export class ProcessWagerTransaction {
     }
   }
 
-  private async attempt(command: ProcessWagerCommand, payloadHash: string, budgetMs: number): Promise<WagerResult> {
+  private countRetry(error: unknown): void {
+    const reason = error instanceof TransientDbError ? error.reason : error instanceof UniqueRaceError ? "unique_race" : "unknown_commit";
+    this.metrics.count("use_case_retries_total", { reason });
+    if (error instanceof TransientDbError && LOCK_CONFLICTS.includes(error.reason)) {
+      this.metrics.count("lock_conflicts_total", { reason });
+    }
+  }
+
+  private async attempt(
+    command: ProcessWagerCommand,
+    payloadHash: string,
+    budgetMs: number,
+    observed: { inboxDuplicate: boolean },
+  ): Promise<WagerResult> {
     const { request, idempotencyKey } = command;
     if (!command.inbox) {
       const known = await this.store.findByIdempotencyKey(request.providerId, idempotencyKey);
       if (known) return this.replay(known, payloadHash);
     }
-    return this.store.runLocked(request.walletId, { budgetMs }, (tx) => this.apply(tx, command, payloadHash));
+    return this.store.runLocked(request.walletId, { budgetMs }, (tx) => this.apply(tx, command, payloadHash, observed));
   }
 
   private pause(): number {
@@ -159,13 +198,18 @@ export class ProcessWagerTransaction {
     return toResult(known, true);
   }
 
-  private async apply(tx: WagerStoreTx, command: ProcessWagerCommand, payloadHash: string): Promise<WagerResult> {
+  private async apply(
+    tx: WagerStoreTx,
+    command: ProcessWagerCommand,
+    payloadHash: string,
+    observed: { inboxDuplicate: boolean },
+  ): Promise<WagerResult> {
     const { request, idempotencyKey } = command;
 
     const wallet = await tx.loadWallet();
     if (!wallet) throw new WalletNotFoundError("wallet does not exist");
 
-    if (command.inbox) await this.recordInbox(tx, command.inbox);
+    if (command.inbox) await this.recordInbox(tx, command.inbox, observed);
 
     const known = await tx.findByIdempotencyKey(request.providerId, idempotencyKey);
     if (known) return this.replay(known, payloadHash);
@@ -228,8 +272,9 @@ export class ProcessWagerTransaction {
     return toResult(transaction, false);
   }
 
-  private async recordInbox(tx: WagerStoreTx, inbox: InboxEntry): Promise<void> {
+  private async recordInbox(tx: WagerStoreTx, inbox: InboxEntry, observed: { inboxDuplicate: boolean }): Promise<void> {
     const record = await tx.recordInbox(inbox, this.clock.now());
+    if (record.status === "duplicate") observed.inboxDuplicate = true;
     if (record.status === "duplicate" && record.messageHash !== inbox.messageHash) {
       throw new InboxPayloadMismatchError("message id was already received with a different payload");
     }

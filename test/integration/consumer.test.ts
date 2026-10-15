@@ -18,6 +18,7 @@ import { Wallet } from "../../src/domain/wallet";
 import { PostgresWagerStore } from "../../src/infra/db/postgres-wager-store";
 import { PostgresWalletStore } from "../../src/infra/db/postgres-wallet-store";
 import { type Disposition, SqsConsumer, WagerMessageHandler } from "../../src/infra/sqs/consumer";
+import { InMemoryMetrics } from "../../src/observability";
 import { createQueues, redriveDlq, type QueueUrls } from "../../src/infra/sqs/queues";
 import { SystemClock, UuidV7Generator } from "../../src/infra/system";
 import { createTestDatabase, type TestDatabase } from "../helpers/db";
@@ -158,8 +159,8 @@ async function receiveFrom(QueueUrl: string, timeoutMs = 10_000) {
   return undefined;
 }
 
-const consumerWith = (handler: Pick<WagerMessageHandler, "handle">, client: SQSClient = sqs, cfg = config) =>
-  new SqsConsumer(client, handler as WagerMessageHandler, cfg, new SystemClock(), () => {}, () => 0);
+const consumerWith = (handler: Pick<WagerMessageHandler, "handle">, client: SQSClient = sqs, cfg = config, metrics = new InMemoryMetrics()) =>
+  new SqsConsumer(client, handler as WagerMessageHandler, cfg, new SystemClock(), () => {}, () => 0, metrics);
 
 const never = new AbortController().signal;
 
@@ -172,6 +173,22 @@ describe("SqsConsumer against LocalStack and Postgres", () => {
     expect(await consumer.pollOnce(never)).toBe(1);
     expect(await balance(wallet)).toBe("90.00");
     expect(await depth(urls.main)).toEqual({ visible: 0, inFlight: 0 });
+  });
+
+  test("acks, dead letters and retries are counted", async () => {
+    const wallet = await openWallet();
+    const metrics = new InMemoryMetrics();
+    await enqueue(wallet.id, messageFor(wallet, "mt-ok"));
+    await enqueue(wallet.id, messageFor(wallet, "mt-bad", { money: { amount: "1", currency: "BRL" } }));
+    await consumerWith(realHandler, sqs, config, metrics).pollOnce(never);
+    expect(metrics.counter("consumer_messages_total", { action: "ack" })).toBe(1);
+    expect(metrics.counter("consumer_messages_total", { action: "dlq" })).toBe(1);
+    expect(metrics.counter("dlq_messages_total", { code: "VALIDATION_ERROR" })).toBe(1);
+
+    await enqueue(wallet.id, messageFor(wallet, "mt-retry"));
+    const retrying = { handle: async (): Promise<Disposition> => ({ action: "retry", code: "TRANSIENT_FAILURE" }) };
+    await consumerWith(retrying, sqs, config, metrics).pollOnce(never);
+    expect(metrics.counter("consumer_messages_total", { action: "retry" })).toBe(1);
   });
 
   test("a business rejection is acked, not dead-lettered", async () => {

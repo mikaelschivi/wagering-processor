@@ -1,5 +1,5 @@
 import { OUTBOX_BACKOFF_CAP_S } from "../globals";
-import type { Clock, EventSender, OutboxFailure, OutboxMessage, OutboxStore } from "./ports";
+import { type Clock, type EventSender, type Metrics, NullMetrics, type OutboxFailure, type OutboxMessage, type OutboxStore } from "./ports";
 
 const MAX_ERROR_LENGTH = 500;
 
@@ -28,6 +28,7 @@ export class OutboxPublisher {
     private readonly sender: EventSender,
     private readonly clock: Clock,
     private readonly options: OutboxPublisherOptions,
+    private readonly metrics: Metrics = new NullMetrics(),
   ) {}
 
   publishBatch(): Promise<PublishReport> {
@@ -47,6 +48,8 @@ export class OutboxPublisher {
 
       if (published.length > 0) await batch.markPublished(published);
       if (retries.length > 0) await batch.markFailed(retries);
+      this.metrics.count("outbox_publish_total", { result: "published" }, published.length);
+      this.metrics.count("outbox_publish_total", { result: "failed" }, retries.length);
       return { claimed: messages.length, published: published.length, failed: retries.length };
     });
   }
