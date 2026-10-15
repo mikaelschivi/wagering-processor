@@ -73,6 +73,10 @@ export class WalletNotFoundError extends DomainError {
   readonly code = "WALLET_NOT_FOUND";
 }
 
+export class InboxPayloadMismatchError extends DomainError {
+  readonly code = "INBOX_PAYLOAD_MISMATCH";
+}
+
 export class ForbiddenProviderError extends DomainError {
   readonly code = "FORBIDDEN_PROVIDER";
 }

@@ -89,7 +89,16 @@ export interface WagerChange {
   events?: DomainEvent[];
 }
 
+export interface InboxEntry {
+  consumerName: string;
+  messageId: string;
+  messageHash: string;
+}
+
+export type InboxRecord = { status: "recorded" } | { status: "duplicate"; messageHash: string };
+
 export interface WagerStoreTx {
+  recordInbox(entry: InboxEntry, at: Date): Promise<InboxRecord>;
   loadWallet(): Promise<Wallet | undefined>;
   findByIdempotencyKey(providerId: string, key: string): Promise<WagerTransaction | undefined>;
   findByExternalId(providerId: string, externalTransactionId: string): Promise<WagerTransaction | undefined>;

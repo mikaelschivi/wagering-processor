@@ -254,7 +254,7 @@ export interface PayloadFields {
   referenceExternalTransactionId?: string | undefined;
 }
 
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value !== null && typeof value === "object") {
     const members = Object.entries(value)

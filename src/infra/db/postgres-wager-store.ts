@@ -1,6 +1,8 @@
 import type { MikroORM } from "@mikro-orm/postgresql";
 import {
   type DomainEvent,
+  type InboxEntry,
+  type InboxRecord,
   InvariantDbError,
   type LockOptions,
   TransientDbError,
@@ -198,6 +200,22 @@ async function writeChange(exec: Exec, { transaction, wallet, entry, events }: W
   await writeEvents(exec, events);
 }
 
+async function recordInbox(exec: Exec, entry: InboxEntry, at: Date): Promise<InboxRecord> {
+  const inserted = await exec(
+    `insert into inbox_messages (consumer_name, message_id, payload_hash, received_at, processed_at)
+     values (?, ?, ?, ?, ?)
+     on conflict (consumer_name, message_id) do nothing
+     returning message_id`,
+    [entry.consumerName, entry.messageId, entry.messageHash, at, at],
+  );
+  if (inserted.length === 1) return { status: "recorded" };
+  const [existing] = await exec("select payload_hash from inbox_messages where consumer_name = ? and message_id = ?", [
+    entry.consumerName,
+    entry.messageId,
+  ]);
+  return { status: "duplicate", messageHash: existing!.payload_hash as string };
+}
+
 export class PostgresWagerStore extends WagerStore {
   constructor(
     private readonly orm: MikroORM,
@@ -235,6 +253,7 @@ export class PostgresWagerStore extends WagerStore {
         async (exec) => {
           const [walletRow] = await exec(`select ${WALLET_COLUMNS} from wallets where id = ? for update`, [walletId]);
           const result = await work({
+            recordInbox: (entry, at) => recordInbox(exec, entry, at),
             loadWallet: async () => walletRow && toWallet(walletRow),
             findByIdempotencyKey: (providerId, key) => findOne(exec, "idempotency_key", providerId, key),
             findByExternalId: (providerId, externalId) => findOne(exec, "external_transaction_id", providerId, externalId),

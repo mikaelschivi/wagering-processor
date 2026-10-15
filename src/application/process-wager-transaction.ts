@@ -3,6 +3,7 @@ import {
   type FailureCode,
   ForbiddenProviderError,
   IdempotencyKeyConflictError,
+  InboxPayloadMismatchError,
   TransientInfrastructureError,
   WalletNotFoundError,
 } from "../domain/errors";
@@ -26,6 +27,7 @@ import { LedgerDirection, type Wallet } from "../domain/wallet";
 import {
   type Clock,
   type IdGenerator,
+  type InboxEntry,
   type Principal,
   TransientDbError,
   UniqueRaceError,
@@ -69,6 +71,7 @@ export interface ProcessWagerCommand {
   idempotencyKey: string;
   correlationId: string;
   causationId?: string;
+  inbox?: InboxEntry;
 }
 
 export interface WagerResult {
@@ -126,8 +129,10 @@ export class ProcessWagerTransaction {
 
   private async attempt(command: ProcessWagerCommand, payloadHash: string, budgetMs: number): Promise<WagerResult> {
     const { request, idempotencyKey } = command;
-    const known = await this.store.findByIdempotencyKey(request.providerId, idempotencyKey);
-    if (known) return this.replay(known, payloadHash);
+    if (!command.inbox) {
+      const known = await this.store.findByIdempotencyKey(request.providerId, idempotencyKey);
+      if (known) return this.replay(known, payloadHash);
+    }
     return this.store.runLocked(request.walletId, { budgetMs }, (tx) => this.apply(tx, command, payloadHash));
   }
 
@@ -148,6 +153,8 @@ export class ProcessWagerTransaction {
 
     const wallet = await tx.loadWallet();
     if (!wallet) throw new WalletNotFoundError("wallet does not exist");
+
+    if (command.inbox) await this.recordInbox(tx, command.inbox);
 
     const known = await tx.findByIdempotencyKey(request.providerId, idempotencyKey);
     if (known) return this.replay(known, payloadHash);
@@ -208,6 +215,13 @@ export class ProcessWagerTransaction {
       }
     }
     return toResult(transaction, false);
+  }
+
+  private async recordInbox(tx: WagerStoreTx, inbox: InboxEntry): Promise<void> {
+    const record = await tx.recordInbox(inbox, this.clock.now());
+    if (record.status === "duplicate" && record.messageHash !== inbox.messageHash) {
+      throw new InboxPayloadMismatchError("message id was already received with a different payload");
+    }
   }
 
   private move(wallet: Wallet, transaction: WagerTransaction, direction: LedgerDirection, at: Date) {

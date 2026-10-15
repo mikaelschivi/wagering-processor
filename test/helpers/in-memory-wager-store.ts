@@ -1,5 +1,7 @@
 import {
   type DomainEvent,
+  type InboxEntry,
+  type InboxRecord,
   type LockOptions,
   UniqueRaceError,
   type WagerChange,
@@ -12,6 +14,8 @@ import {
   WagerTransactionStatus,
 } from "../../src/domain/wager-transaction";
 import { Wallet, type WalletLedgerEntry } from "../../src/domain/wallet";
+
+const pendingInboxes = new WeakMap<WagerChange[], Map<string, string>>();
 
 const copyWallet = (wallet: Wallet) =>
   Wallet.rehydrate({
@@ -55,6 +59,7 @@ export class InMemoryWagerStore extends WagerStore {
     this.hidden[kind] = count;
   }
 
+  readonly inbox = new Map<string, string>();
   private readonly byKey = new Map<string, string>();
   private readonly byExternal = new Map<string, string>();
   private readonly tails = new Map<string, Promise<void>>();
@@ -112,7 +117,16 @@ export class InMemoryWagerStore extends WagerStore {
   }
 
   private transactionFor(walletId: string, pending: WagerChange[]): WagerStoreTx {
+    const pendingInbox = new Map<string, string>();
+    pendingInboxes.set(pending, pendingInbox);
     return {
+      recordInbox: async (entry: InboxEntry, _at: Date): Promise<InboxRecord> => {
+        const key = `${entry.consumerName}:${entry.messageId}`;
+        const existing = this.inbox.get(key) ?? pendingInbox.get(key);
+        if (existing !== undefined) return { status: "duplicate", messageHash: existing };
+        pendingInbox.set(key, entry.messageHash);
+        return { status: "recorded" };
+      },
       loadWallet: async () => {
         const wallet = this.wallets.get(walletId);
         return wallet && copyWallet(wallet);
@@ -150,6 +164,7 @@ export class InMemoryWagerStore extends WagerStore {
       if (this.byKey.has(key)) throw new UniqueRaceError("ux_tx_provider_idem");
       if (this.byExternal.has(external)) throw new UniqueRaceError("ux_tx_provider_external");
     }
+    for (const [key, hash] of pendingInboxes.get(pending) ?? []) this.inbox.set(key, hash);
     for (const { transaction, wallet, entry, events } of pending) {
       if (events) this.events.push(...events);
       this.transactions.set(transaction.id, transaction);

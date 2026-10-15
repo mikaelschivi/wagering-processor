@@ -57,25 +57,25 @@ export function requireIdempotencyKey(header: string | undefined): string {
   return validate(idempotencyKey, header);
 }
 
-export const wagerBody = z
-  .object({
-    providerId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
-    externalTransactionId: identifier,
-    playerId: uuid,
-    walletId: uuid,
-    roundId: identifier,
-    gameId: identifier,
-    kind: z.enum([
-      WagerTransactionKind.Bet,
-      WagerTransactionKind.Win,
-      WagerTransactionKind.Loss,
-      WagerTransactionKind.Refund,
-      WagerTransactionKind.Rollback,
-    ]),
-    money: z.object({ amount: z.string(), currency: z.string() }).strict(),
-    referenceExternalTransactionId: identifier.optional(),
-  })
-  .strict();
+export const wagerFields = {
+  providerId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+  externalTransactionId: identifier,
+  playerId: uuid,
+  walletId: uuid,
+  roundId: identifier,
+  gameId: identifier,
+  kind: z.enum([
+    WagerTransactionKind.Bet,
+    WagerTransactionKind.Win,
+    WagerTransactionKind.Loss,
+    WagerTransactionKind.Refund,
+    WagerTransactionKind.Rollback,
+  ]),
+  money: z.object({ amount: z.string(), currency: z.string() }).strict(),
+  referenceExternalTransactionId: identifier.optional(),
+};
+
+export const wagerBody = z.object(wagerFields).strict();
 
 export const transactionParams = z.object({ transactionId: uuid }).strict();
 
