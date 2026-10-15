@@ -41,7 +41,7 @@ export interface NestingInput {
 
 const STOP_GRACE_PERIOD_MS = 30_000;
 const SQS_MAX_VISIBILITY_FACTOR = 12;
-const OUTBOX_SEND_MARGIN_MS = 500;
+export const OUTBOX_SEND_MARGIN_MS = 500;
 
 export function nestingViolations(c: NestingInput): string[] {
   const rules: [string, boolean][] = [

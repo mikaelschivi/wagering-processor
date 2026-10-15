@@ -11,6 +11,7 @@ let baseUrl: string;
 beforeAll(async () => {
   const config = loadConfig({
     PORT: "0",
+    APP_ROLES: "api",
     DB_APP_PASSWORD: "unused",
     DB_HOST: "127.0.0.1",
     DB_PORT: "1",

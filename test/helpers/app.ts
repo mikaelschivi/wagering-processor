@@ -12,7 +12,7 @@ export interface BootedApp {
 }
 
 export async function bootApp(config: AppConfig, identity?: ProviderIdentityPort): Promise<BootedApp> {
-  const unreachableSqs = { ...config, AWS_ENDPOINT_URL: "http://127.0.0.1:1" };
+  const unreachableSqs = { ...config, AWS_ENDPOINT_URL: "http://127.0.0.1:1", APP_ROLES: ["api" as const] };
   const app = await NestFactory.create(AppModule.forRoot(unreachableSqs, identity), { logger: false });
   await app.listen(0);
   return { app, baseUrl: await app.getUrl(), close: () => app.close() };

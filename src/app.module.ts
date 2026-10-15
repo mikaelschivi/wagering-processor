@@ -3,19 +3,23 @@ import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import type { SQSClient } from "@aws-sdk/client-sqs";
 import { MikroORM } from "@mikro-orm/postgresql";
 import { CreateWallet } from "./application/create-wallet";
-import { Clock, IdGenerator, ProviderIdentityPort, WagerStore, WalletStore } from "./application/ports";
+import { OutboxPublisher } from "./application/outbox-publisher";
+import { Clock, EventSender, IdGenerator, OutboxStore, ProviderIdentityPort, WagerStore, WalletStore } from "./application/ports";
 import { Reconciliation } from "./application/reconciliation";
 import { ProcessWagerTransaction } from "./application/process-wager-transaction";
 import { APP_CONFIG, type AppConfig } from "./config";
 import { createOrm } from "./infra/db/mikro-orm.config";
+import { PostgresOutboxStore } from "./infra/db/postgres-outbox-store";
 import { PostgresWagerStore } from "./infra/db/postgres-wager-store";
 import { PostgresWalletStore } from "./infra/db/postgres-wallet-store";
 import { AnonymousDevIdentity, AuthGuard } from "./infra/http/auth";
 import { WagerTransactionsController, WalletsController } from "./infra/http/controllers";
 import { HealthController, READINESS_CHECKS, type ReadinessCheck } from "./infra/http/health.controller";
 import { ProblemDetailsFilter } from "./infra/http/problem-details.filter";
+import { OutboxRunner } from "./infra/outbox-runner";
 import { ResourceCloser } from "./infra/shutdown";
 import { createSqsClient, queueReachable, SQS_CLIENT } from "./infra/sqs/client";
+import { createProducerClient, SQS_PRODUCER_CLIENT, SqsEventSender } from "./infra/sqs/producer";
 import { SystemClock, UuidV7Generator } from "./infra/system";
 
 @Module({})
@@ -65,6 +69,27 @@ export class AppModule {
               random: Math.random,
             }),
         },
+        { provide: SQS_PRODUCER_CLIENT, useFactory: () => createProducerClient(config) },
+        {
+          provide: EventSender,
+          inject: [SQS_PRODUCER_CLIENT],
+          useFactory: (client: SQSClient) => SqsEventSender.forConfig(client, config),
+        },
+        {
+          provide: OutboxStore,
+          inject: [MikroORM],
+          useFactory: (orm: MikroORM) => new PostgresOutboxStore(orm, config),
+        },
+        {
+          provide: OutboxPublisher,
+          inject: [OutboxStore, EventSender, Clock],
+          useFactory: (store: OutboxStore, sender: EventSender, clock: Clock) =>
+            new OutboxPublisher(store, sender, clock, {
+              batchSize: config.OUTBOX_BATCH_SIZE,
+              intervalMs: config.OUTBOX_INTERVAL_MS,
+            }),
+        },
+        OutboxRunner,
         {
           provide: READINESS_CHECKS,
           inject: [MikroORM, SQS_CLIENT],
