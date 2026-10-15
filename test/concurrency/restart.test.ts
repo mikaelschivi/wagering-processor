@@ -37,7 +37,7 @@ afterAll(async () => {
 const processed = () => count(db, "select 1 from wager_transactions where kind = 'BET'");
 
 describe("restarting every instance in the middle of the work", () => {
-  test("C8: all processes are killed mid-flight, new ones finish the job, and every message has exactly one effect", async () => {
+  test("concurrency_test8: all processes are killed mid-flight, new ones finish the job, and every message has exactly one effect", async () => {
     running = await spawnInstances(3, { config: queues.config, env: SHORT_TIMEOUTS });
     const wallets: WalletRef[] = await Promise.all(Array.from({ length: WALLETS }, () => createWallet(running[0]!.url, "1000.00")));
     await Promise.all(

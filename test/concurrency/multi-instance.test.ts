@@ -28,7 +28,7 @@ const ledgerRows = (wallet: WalletRef, direction: string) =>
   count(db, "select 1 from wallet_ledger_entries where wallet_id = ? and direction = ?", [wallet.walletId, direction]);
 
 describe("three real app processes against one database", () => {
-  test("C1: the same bet sent 50 times across 3 processes is debited once", async () => {
+  test("concurrency_test1: the same bet sent 50 times across 3 processes is debited once", async () => {
     const wallet = await createWallet(at(0), "100.00");
     const replies = await Promise.all(
       Array.from({ length: 50 }, (_, n) => submitUntilFinal(urls().slice(n % 3).concat(urls().slice(0, n % 3)), { wallet, external: `${run}-c1` })),
@@ -43,7 +43,7 @@ describe("three real app processes against one database", () => {
     await assertAllWalletsConsistent(db);
   }, 60_000);
 
-  test("C2: two 80.00 bets on a balance of 100.00 sent to different processes, repeated on 30 wallets at once", async () => {
+  test("concurrency_test2: two 80.00 bets on a balance of 100.00 sent to different processes, repeated on 30 wallets at once", async () => {
     const wallets = await Promise.all(Array.from({ length: 30 }, () => createWallet(at(0), "100.00")));
     const replies = await Promise.all(
       wallets.flatMap((wallet, index) =>
@@ -61,7 +61,7 @@ describe("three real app processes against one database", () => {
     await assertAllWalletsConsistent(db);
   }, 90_000);
 
-  test("C3: different wallets are processed in parallel by all 3 processes", async () => {
+  test("concurrency_test3: different wallets are processed in parallel by all 3 processes", async () => {
     const wallets = await Promise.all(Array.from({ length: 60 }, () => createWallet(at(0), "500.00")));
     const replies = await Promise.all(
       wallets.flatMap((wallet, index) =>
@@ -74,7 +74,7 @@ describe("three real app processes against one database", () => {
     await assertAllWalletsConsistent(db);
   }, 90_000);
 
-  test("C4: a hot wallet and many quiet ones at the same time, with every process serving traffic", async () => {
+  test("concurrency_test4: a hot wallet and many quiet ones at the same time, with every process serving traffic", async () => {
     const hot = await createWallet(at(0), "5000.00");
     const quiet = await Promise.all(Array.from({ length: 20 }, () => createWallet(at(1), "100.00")));
     const jobs = [

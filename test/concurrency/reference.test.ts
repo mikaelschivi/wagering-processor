@@ -30,7 +30,7 @@ const pending = () => count(db, "select 1 from wager_transactions where status =
 const run = crypto.randomUUID().slice(0, 8);
 
 describe("out-of-order transactions across real processes", () => {
-  test("C7: a ROLLBACK and a REFUND that arrive before their BET are applied by a worker in another process", async () => {
+  test("concurrency_test7: a ROLLBACK and a REFUND that arrive before their BET are applied by a worker in another process", async () => {
     const a = await start("api");
     const b = await start("api");
     await start("reference-worker", { REFERENCE_WORKER_INTERVAL_MS: "100" });

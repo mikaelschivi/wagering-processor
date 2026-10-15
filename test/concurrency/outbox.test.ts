@@ -30,7 +30,7 @@ const unpublished = () => count(db, "select 1 from outbox_messages where publish
 const total = () => count(db, "select 1 from outbox_messages");
 
 describe("outbox with several real publisher processes", () => {
-  test("C6: three publishers on one outbox deliver every event, one of them is killed on the way, and nothing is lost or doubled", async () => {
+  test("concurrency_test6: three publishers on one outbox deliver every event, one of them is killed on the way, and nothing is lost or doubled", async () => {
     const api = await start("api");
     const publishers = [await start("outbox"), await start("outbox"), await start("outbox")];
 
