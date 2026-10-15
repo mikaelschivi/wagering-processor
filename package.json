@@ -10,6 +10,7 @@
     "test": "bun test",
     "test:unit": "bun test test/unit",
     "queues:create": "bun scripts/create-queues.ts",
+    "dlq:redrive": "bun scripts/redrive-dlq.ts",
     "migrate:up": "bun scripts/migrate.ts up",
     "migrate:down": "bun scripts/migrate.ts down"
   },

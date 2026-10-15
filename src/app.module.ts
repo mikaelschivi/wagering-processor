@@ -17,7 +17,7 @@ import { WagerTransactionsController, WalletsController } from "./infra/http/con
 import { HealthController, READINESS_CHECKS, type ReadinessCheck } from "./infra/http/health.controller";
 import { ProblemDetailsFilter } from "./infra/http/problem-details.filter";
 import { OutboxRunner } from "./infra/outbox-runner";
-import { ResourceCloser } from "./infra/shutdown";
+import { LifecycleState, ResourceCloser, ShutdownCoordinator } from "./infra/shutdown";
 import { ConsumerRunner, consumerLogger, SqsConsumer, WagerMessageHandler } from "./infra/sqs/consumer";
 import { createSqsClient, queueReachable, SQS_CLIENT } from "./infra/sqs/client";
 import { createProducerClient, SQS_PRODUCER_CLIENT, SqsEventSender } from "./infra/sqs/producer";
@@ -119,6 +119,8 @@ export class AppModule {
             },
           ],
         },
+        LifecycleState,
+        ShutdownCoordinator,
         ResourceCloser,
       ],
     };

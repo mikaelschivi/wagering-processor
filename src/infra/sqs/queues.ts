@@ -1,4 +1,11 @@
-import { CreateQueueCommand, GetQueueAttributesCommand, type SQSClient } from "@aws-sdk/client-sqs";
+import {
+  CreateQueueCommand,
+  DeleteMessageCommand,
+  GetQueueAttributesCommand,
+  ReceiveMessageCommand,
+  SendMessageCommand,
+  type SQSClient,
+} from "@aws-sdk/client-sqs";
 
 const DAY_S = 24 * 60 * 60;
 
@@ -47,4 +54,41 @@ export async function createQueues(client: SQSClient, names: QueueNames, setting
   });
   const events = await createFifoQueue(client, names.events, { MessageRetentionPeriod: String(4 * DAY_S) });
   return { main, dlq, events };
+}
+
+export interface RedriveOptions {
+  max?: number;
+  waitTimeS?: number;
+}
+
+export async function redriveDlq(
+  client: SQSClient,
+  urls: Pick<QueueUrls, "main" | "dlq">,
+  { max = Number.POSITIVE_INFINITY, waitTimeS = 1 }: RedriveOptions = {},
+): Promise<number> {
+  let moved = 0;
+  while (moved < max) {
+    const { Messages } = await client.send(
+      new ReceiveMessageCommand({
+        QueueUrl: urls.dlq,
+        MaxNumberOfMessages: Math.min(10, max - moved),
+        WaitTimeSeconds: waitTimeS,
+        MessageSystemAttributeNames: ["MessageGroupId"],
+      }),
+    );
+    if (!Messages?.length) break;
+    for (const message of Messages) {
+      await client.send(
+        new SendMessageCommand({
+          QueueUrl: urls.main,
+          MessageBody: message.Body ?? "",
+          MessageGroupId: message.Attributes?.MessageGroupId ?? "redrive",
+          MessageDeduplicationId: crypto.randomUUID(),
+        }),
+      );
+      await client.send(new DeleteMessageCommand({ QueueUrl: urls.dlq, ReceiptHandle: message.ReceiptHandle }));
+      moved++;
+    }
+  }
+  return moved;
 }

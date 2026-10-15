@@ -1,5 +1,6 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from "@nestjs/common";
 
+import { LifecycleState } from "../shutdown";
 import { Public } from "./auth";
 
 export const READINESS_CHECKS = Symbol("READINESS_CHECKS");
@@ -40,7 +41,10 @@ export async function runChecks(checks: ReadinessCheck[]): Promise<ReadinessRepo
 @Controller("health")
 @Public()
 export class HealthController {
-  constructor(@Inject(READINESS_CHECKS) private readonly checks: ReadinessCheck[]) {}
+  constructor(
+    @Inject(READINESS_CHECKS) private readonly checks: ReadinessCheck[],
+    private readonly lifecycle: LifecycleState,
+  ) {}
 
   @Get("live")
   live() {
@@ -49,6 +53,7 @@ export class HealthController {
 
   @Get("ready")
   async ready() {
+    if (this.lifecycle.draining) throw new ServiceUnavailableException({ status: "unavailable", draining: true });
     const report = await runChecks(this.checks);
     if (!report.ok) throw new ServiceUnavailableException({ status: "unavailable", checks: report.checks });
     return { status: "ok", checks: report.checks };

@@ -18,7 +18,7 @@ import { Wallet } from "../../src/domain/wallet";
 import { PostgresWagerStore } from "../../src/infra/db/postgres-wager-store";
 import { PostgresWalletStore } from "../../src/infra/db/postgres-wallet-store";
 import { type Disposition, SqsConsumer, WagerMessageHandler } from "../../src/infra/sqs/consumer";
-import { createQueues, type QueueUrls } from "../../src/infra/sqs/queues";
+import { createQueues, redriveDlq, type QueueUrls } from "../../src/infra/sqs/queues";
 import { SystemClock, UuidV7Generator } from "../../src/infra/system";
 import { createTestDatabase, type TestDatabase } from "../helpers/db";
 import { openingRecord } from "../helpers/fakes";
@@ -372,6 +372,42 @@ describe("SqsConsumer against LocalStack and Postgres", () => {
     expect(handled).toEqual(["s-1"]);
     expect(await depth(urls.main)).toEqual({ visible: 1, inFlight: 0 });
   });
+
+  test("redrive moves dead-lettered messages back, and they succeed once the cause is fixed", async () => {
+    const playerId = crypto.randomUUID();
+    const walletId = crypto.randomUUID();
+    const ghost = { id: walletId, playerId } as Wallet;
+    await enqueue(walletId, messageFor(ghost, "r-1"));
+    const consumer = consumerWith(realHandler);
+    await consumer.pollOnce(never);
+    expect((await depth(urls.dlq)).visible).toBe(1);
+
+    const { wallet, openingEntry } = Wallet.open({
+      id: walletId,
+      playerId,
+      initialBalance: Money.from({ amount: "100.00", currency: "BRL" }),
+      openingTransactionId: crypto.randomUUID(),
+      openingEntryId: crypto.randomUUID(),
+      at,
+    });
+    await wallets.create(wallet, openingRecord(wallet, openingEntry));
+
+    expect(await redriveDlq(sqs, urls)).toBe(1);
+    expect((await depth(urls.dlq)).visible).toBe(0);
+    await consumer.pollOnce(never);
+    expect(await balance(wallet)).toBe("90.00");
+    expect(await depth(urls.main)).toEqual({ visible: 0, inFlight: 0 });
+  }, 30_000);
+
+  test("redrive honours the maximum and leaves the rest in the DLQ", async () => {
+    const wallet = await openWallet();
+    for (const id of ["x-1", "x-2", "x-3"]) await enqueue(wallet.id, messageFor(wallet, id, { kind: "OPENING" }));
+    const consumer = consumerWith(realHandler);
+    for (let polls = 0; polls < 5 && (await depth(urls.dlq)).visible < 3; polls++) await consumer.pollOnce(never);
+    expect(await redriveDlq(sqs, urls, { max: 2 })).toBe(2);
+    const { visible, inFlight } = await depth(urls.dlq);
+    expect(visible + inFlight).toBe(1);
+  }, 30_000);
 
   test("an aborted signal stops the loop quickly and leaves received messages unstarted", async () => {
     const wallet = await openWallet();

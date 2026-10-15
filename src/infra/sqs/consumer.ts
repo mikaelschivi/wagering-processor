@@ -8,7 +8,7 @@ import {
   SendMessageCommand,
   type SQSClient,
 } from "@aws-sdk/client-sqs";
-import { type BeforeApplicationShutdown, Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
+import { Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import { z } from "zod";
 import type { Clock } from "../../application/ports";
 import { APP_CONFIG, type AppConfig } from "../../config";
@@ -297,8 +297,8 @@ export class SqsConsumer {
 }
 
 @Injectable()
-export class ConsumerRunner implements OnApplicationBootstrap, BeforeApplicationShutdown {
-  private readonly stop = new AbortController();
+export class ConsumerRunner implements OnApplicationBootstrap {
+  private readonly stopSignal = new AbortController();
   private loop: Promise<void> | undefined;
 
   constructor(
@@ -307,11 +307,11 @@ export class ConsumerRunner implements OnApplicationBootstrap, BeforeApplication
   ) {}
 
   onApplicationBootstrap(): void {
-    if (this.config.APP_ROLES.includes("consumer")) this.loop = this.consumer.run(this.stop.signal);
+    if (this.config.APP_ROLES.includes("consumer")) this.loop = this.consumer.run(this.stopSignal.signal);
   }
 
-  async beforeApplicationShutdown(): Promise<void> {
-    this.stop.abort();
+  async stop(): Promise<void> {
+    this.stopSignal.abort();
     await this.loop;
   }
 }
