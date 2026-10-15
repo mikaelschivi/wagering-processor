@@ -71,6 +71,14 @@ export class InMemoryWagerStore extends WagerStore {
     return this.lookup(providerId, key);
   }
 
+  async findById(id: string) {
+    return this.transactions.get(id);
+  }
+
+  async findByExternalId(providerId: string, externalId: string) {
+    return this.transactions.get(this.byExternal.get(`${providerId}:${externalId}`) ?? "");
+  }
+
   private lookup(providerId: string, key: string) {
     if (this.hidden.key > 0) {
       this.hidden.key--;

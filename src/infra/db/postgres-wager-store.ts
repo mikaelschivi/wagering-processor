@@ -116,6 +116,11 @@ async function findOne(exec: Exec, column: string, providerId: string, value: st
   return row && toTransaction(row);
 }
 
+async function findInternalId(exec: Exec, id: string) {
+  const [row] = await exec(`select ${TRANSACTION_COLUMNS} from wager_transactions where id = ?`, [id]);
+  return row && toTransaction(row);
+}
+
 async function writeChange(exec: Exec, { transaction, wallet, entry }: WagerChange): Promise<void> {
   const status = transaction.status;
   await insert(exec, "wager_transactions", {
@@ -177,8 +182,20 @@ export class PostgresWagerStore extends WagerStore {
   }
 
   async findByIdempotencyKey(providerId: string, key: string): Promise<WagerTransaction | undefined> {
+    return this.read(() => findOne(this.exec, "idempotency_key", providerId, key));
+  }
+
+  async findById(id: string): Promise<WagerTransaction | undefined> {
+    return this.read(() => findInternalId(this.exec, id));
+  }
+
+  async findByExternalId(providerId: string, externalTransactionId: string): Promise<WagerTransaction | undefined> {
+    return this.read(() => findOne(this.exec, "external_transaction_id", providerId, externalTransactionId));
+  }
+
+  private async read<T>(query: () => Promise<T>): Promise<T> {
     try {
-      return await findOne(this.exec, "idempotency_key", providerId, key);
+      return await query();
     } catch (error) {
       throw translateDbError(error, false);
     }

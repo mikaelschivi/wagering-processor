@@ -5,8 +5,18 @@ import {
   HttpException,
   Logger,
 } from "@nestjs/common";
-import { DomainError, InvalidMoneyError, NotFoundError, WalletAlreadyExistsError } from "../../domain/errors";
-import { RequestValidationError } from "./schemas";
+import {
+  ExternalTransactionIdConflictError,
+  IdempotencyKeyConflictError,
+  InvalidMoneyError,
+  InvalidWagerTransactionError,
+  MoneyOverflowError,
+  NotFoundError,
+  TransientInfrastructureError,
+  WalletAlreadyExistsError,
+  WalletNotFoundError,
+} from "../../domain/errors";
+import { correlationIdFrom, MissingIdempotencyKeyError, RequestValidationError } from "./schemas";
 
 interface HttpRequest {
   header(name: string): string | undefined;
@@ -25,10 +35,9 @@ interface Problem {
   title: string;
   detail: string;
   retryable: boolean;
+  retryAfterS?: number;
   extra?: Record<string, unknown>;
 }
-
-const CORRELATION_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 
 function toProblem(error: unknown): Problem {
   if (error instanceof RequestValidationError) {
@@ -59,8 +68,37 @@ function toProblem(error: unknown): Problem {
       retryable: false,
     };
   }
-  if (error instanceof InvalidMoneyError) {
+  if (error instanceof MissingIdempotencyKeyError) {
+    return {
+      status: 400,
+      code: "MISSING_IDEMPOTENCY_KEY",
+      title: "Invalid request",
+      detail: error.message,
+      retryable: false,
+    };
+  }
+  if (
+    error instanceof InvalidMoneyError ||
+    error instanceof MoneyOverflowError ||
+    error instanceof InvalidWagerTransactionError
+  ) {
     return { status: 400, code: "VALIDATION_ERROR", title: "Invalid request", detail: error.message, retryable: false };
+  }
+  if (error instanceof IdempotencyKeyConflictError || error instanceof ExternalTransactionIdConflictError) {
+    return { status: 409, code: error.code, title: "Conflict", detail: error.message, retryable: false };
+  }
+  if (error instanceof WalletNotFoundError) {
+    return { status: 422, code: error.code, title: "Wallet not found", detail: error.message, retryable: false };
+  }
+  if (error instanceof TransientInfrastructureError) {
+    return {
+      status: 503,
+      code: error.code,
+      title: "Temporarily unavailable",
+      detail: error.message,
+      retryable: true,
+      retryAfterS: 1,
+    };
   }
   if (error instanceof WalletAlreadyExistsError) {
     return {
@@ -104,8 +142,7 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const request = http.getRequest<HttpRequest>();
     const response = http.getResponse<HttpResponse>();
 
-    const header = request.header("x-correlation-id");
-    const correlationId = header && CORRELATION_ID.test(header) ? header : Bun.randomUUIDv7();
+    const correlationId = correlationIdFrom(request.header("x-correlation-id"));
     if (error instanceof HttpException && !isMapped(error)) {
       const body = error.getResponse();
       response.status(error.getStatus()).json(
@@ -113,12 +150,13 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       );
       return;
     }
-    const { status, code, title, detail, retryable, extra } = toProblem(error);
+    const { status, code, title, detail, retryable, retryAfterS, extra } = toProblem(error);
     if (status >= 500) this.logger.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
 
     response
       .status(status)
       .setHeader("x-correlation-id", correlationId);
+    if (retryAfterS !== undefined) response.setHeader("retry-after", String(retryAfterS));
     response.type("application/problem+json").json({
       type: `urn:wagering:error:${code}`,
       title,

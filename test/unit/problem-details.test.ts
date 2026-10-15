@@ -1,6 +1,14 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { Logger, ServiceUnavailableException, type ArgumentsHost } from "@nestjs/common";
-import { InsufficientFundsError } from "../../src/domain/errors";
+import {
+  ExternalTransactionIdConflictError,
+  IdempotencyKeyConflictError,
+  InsufficientFundsError,
+  InvalidWagerTransactionError,
+  TransientInfrastructureError,
+  WalletNotFoundError,
+} from "../../src/domain/errors";
+import { MissingIdempotencyKeyError } from "../../src/infra/http/schemas";
 import { ProblemDetailsFilter } from "../../src/infra/http/problem-details.filter";
 
 beforeAll(() => Logger.overrideLogger(false));
@@ -56,5 +64,22 @@ describe("ProblemDetailsFilter", () => {
     const id = sent.headers["x-correlation-id"];
     expect(id).toBeTruthy();
     expect(sent.body).toMatchObject({ correlationId: id });
+  });
+
+  test.each([
+    [new IdempotencyKeyConflictError("x"), 409, "IDEMPOTENCY_KEY_CONFLICT", false],
+    [new ExternalTransactionIdConflictError("x"), 409, "EXTERNAL_TRANSACTION_ID_CONFLICT", false],
+    [new WalletNotFoundError("x"), 422, "WALLET_NOT_FOUND", false],
+    [new MissingIdempotencyKeyError(), 400, "MISSING_IDEMPOTENCY_KEY", false],
+    [new InvalidWagerTransactionError("x"), 400, "VALIDATION_ERROR", false],
+    [new TransientInfrastructureError("x"), 503, "TRANSIENT_FAILURE", true],
+  ])("%p maps to %p %p", (error, status, code, retryable) => {
+    const sent = run(error);
+    expect(sent.status).toBe(status);
+    expect(sent.body).toMatchObject({ code, retryable });
+  });
+
+  test("a transient failure tells the client when to retry", () => {
+    expect(run(new TransientInfrastructureError("x")).headers["retry-after"]).toBe("1");
   });
 });
