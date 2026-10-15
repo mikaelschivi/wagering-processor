@@ -130,8 +130,15 @@ interface Histogram {
 export interface MetricsSnapshot {
   counters: Record<string, number>;
   gauges: Record<string, number>;
-  histograms: Record<string, { count: number; sum: number; max: number; buckets: Record<string, number> }>;
+  histograms: Record<string, { count: number; sum: number; max: number; p50: number; p95: number; p99: number }>;
 }
+
+const percentile = (histogram: Histogram, quantile: number): number => {
+  const target = Math.ceil(histogram.count * quantile);
+  const index = histogram.buckets.findIndex((cumulative) => cumulative >= target);
+  const bound = index === -1 ? histogram.max : (BUCKETS[index] ?? histogram.max);
+  return Math.min(bound, histogram.max);
+};
 
 const seriesKey = (name: string, labels: Labels = {}): string => {
   const parts = Object.entries(labels)
@@ -189,7 +196,9 @@ export class InMemoryMetrics extends Metrics {
             count: histogram.count,
             sum: Number(histogram.sum.toFixed(6)),
             max: Number(histogram.max.toFixed(6)),
-            buckets: Object.fromEntries(BUCKETS.map((bound, index) => [String(bound), histogram.buckets[index] ?? 0])),
+            p50: percentile(histogram, 0.5),
+            p95: percentile(histogram, 0.95),
+            p99: percentile(histogram, 0.99),
           },
         ]),
       ),
