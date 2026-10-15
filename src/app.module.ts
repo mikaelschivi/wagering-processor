@@ -4,6 +4,7 @@ import type { SQSClient } from "@aws-sdk/client-sqs";
 import { MikroORM } from "@mikro-orm/postgresql";
 import { CreateWallet } from "./application/create-wallet";
 import { Clock, IdGenerator, ProviderIdentityPort, WagerStore, WalletStore } from "./application/ports";
+import { Reconciliation } from "./application/reconciliation";
 import { ProcessWagerTransaction } from "./application/process-wager-transaction";
 import { APP_CONFIG, type AppConfig } from "./config";
 import { createOrm } from "./infra/db/mikro-orm.config";
@@ -34,6 +35,11 @@ export class AppModule {
           provide: CreateWallet,
           inject: [WalletStore, IdGenerator, Clock],
           useFactory: (store: WalletStore, ids: IdGenerator, clock: Clock) => new CreateWallet(store, ids, clock),
+        },
+        {
+          provide: Reconciliation,
+          inject: [WalletStore],
+          useFactory: (store: WalletStore) => new Reconciliation(store),
         },
         { provide: MikroORM, useFactory: () => createOrm(config) },
         { provide: SQS_CLIENT, useFactory: () => createSqsClient(config) },

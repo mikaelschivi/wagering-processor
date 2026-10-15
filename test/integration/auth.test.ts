@@ -80,6 +80,13 @@ describe("authorization", () => {
     expect((await fetch(`${baseUrl}/wallets`, { method: "POST", headers: as("admin"), body })).status).toBe(201);
   });
 
+  test("reconciliation is admin-only", async () => {
+    const wallet = await seed();
+    const url = `${baseUrl}/wallets/${wallet.walletId}/reconciliation`;
+    expect((await fetch(url, { method: "POST", headers: as("provider-a") })).status).toBe(403);
+    expect((await fetch(url, { method: "POST", headers: as("admin") })).status).toBe(200);
+  });
+
   test("a provider submits for itself but not for another provider", async () => {
     const wallet = await seed();
     const own = await submit("provider-a", wallet, "provider-a");

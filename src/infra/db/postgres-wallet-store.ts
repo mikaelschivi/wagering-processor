@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { MikroORM } from "@mikro-orm/postgresql";
-import { type LedgerPageQuery, WalletStore } from "../../application/ports";
+import { IsolationLevel } from "@mikro-orm/core";
+import { type LedgerPageQuery, type ReconciliationSnapshot, WalletStore } from "../../application/ports";
 import type { AppConfig } from "../../config";
 import { WalletAlreadyExistsError } from "../../domain/errors";
 import { Money } from "../../domain/money";
@@ -72,6 +73,50 @@ export class PostgresWalletStore extends WalletStore {
       createdAt: new Date(row.created_at as string),
       updatedAt: new Date(row.updated_at as string),
     });
+  }
+
+  async reconciliationSnapshot(walletId: string): Promise<ReconciliationSnapshot | undefined> {
+    return inTransaction(
+      this.orm,
+      this.config,
+      async (exec) => {
+        const [row] = await exec(
+          `select id, player_id, currency, balance, version, ${isoUtc("created_at")}, ${isoUtc("updated_at")}
+             from wallets where id = ?`,
+          [walletId],
+        );
+        if (!row) return undefined;
+        const currency = row.currency as string;
+        const [totals] = await exec(
+          `select count(*) as entries, max(wallet_version) as max_version,
+                  coalesce(sum(case when direction = 'CREDIT' then amount else -amount end), 0.00) as calculated
+             from wallet_ledger_entries where wallet_id = ?`,
+          [walletId],
+        );
+        const [tail] = await exec(
+          "select balance_after from wallet_ledger_entries where wallet_id = ? order by wallet_version desc limit 1",
+          [walletId],
+        );
+        const maxVersion = totals!.max_version as number | null;
+        return {
+          wallet: Wallet.rehydrate({
+            id: row.id as string,
+            playerId: row.player_id as string,
+            currency,
+            balance: Money.fromDb(row.balance as string, currency),
+            version: row.version as number,
+            createdAt: new Date(row.created_at as string),
+            updatedAt: new Date(row.updated_at as string),
+          }),
+          calculated: Money.fromDb(totals!.calculated as string, currency),
+          entryCount: Number(totals!.entries),
+          ...(maxVersion !== null && { maxVersion }),
+          ...(tail && { tailBalance: Money.fromDb(tail.balance_after as string, currency) }),
+        };
+      },
+      undefined,
+      { isolationLevel: IsolationLevel.REPEATABLE_READ, readOnly: true },
+    );
   }
 
   async ledgerPage(walletId: string, { beforeVersion, limit }: LedgerPageQuery): Promise<WalletLedgerEntry[]> {

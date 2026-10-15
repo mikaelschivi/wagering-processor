@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Query, Res } from "@nestjs/common";
+import { Body, Controller, Logger, Get, Headers, HttpCode, Inject, Param, Post, Query, Res } from "@nestjs/common";
 import { CreateWallet } from "../../application/create-wallet";
+import { Reconciliation } from "../../application/reconciliation";
 import { ProcessWagerTransaction, type WagerResult } from "../../application/process-wager-transaction";
 import { type Principal, WagerStore, WalletStore } from "../../application/ports";
 import { APP_CONFIG, type AppConfig } from "../../config";
@@ -49,7 +50,10 @@ export class WalletsController {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly createWallet: CreateWallet,
     private readonly store: WalletStore,
+    private readonly reconciliation: Reconciliation,
   ) {}
+
+  private readonly logger = new Logger(WalletsController.name);
 
   @Post()
   @AdminRoute()
@@ -66,6 +70,18 @@ export class WalletsController {
     const wallet = await this.store.findById(walletId);
     if (!wallet) throw new NotFoundError("wallet not found");
     return walletView(wallet);
+  }
+
+  @Post(":walletId/reconciliation")
+  @AdminRoute()
+  @HttpCode(200)
+  async reconcile(@Param() params: unknown) {
+    const { walletId } = validate(walletParams, params);
+    const report = await this.reconciliation.execute(walletId);
+    if (!report.consistent) {
+      this.logger.error(`reconciliation mismatch walletId=${walletId} issues=${report.issues.join(",")}`);
+    }
+    return report;
   }
 
   @Get(":walletId/ledger")

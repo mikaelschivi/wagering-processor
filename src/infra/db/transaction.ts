@@ -1,3 +1,4 @@
+import type { IsolationLevel } from "@mikro-orm/core";
 import type { MikroORM, SqlEntityManager } from "@mikro-orm/postgresql";
 import type { AppConfig } from "../../config";
 
@@ -19,6 +20,7 @@ export function inTransaction<T>(
   config: AppConfig,
   work: (exec: Exec) => Promise<T>,
   budgetMs = Number.POSITIVE_INFINITY,
+  mode: { isolationLevel: IsolationLevel; readOnly: boolean } | undefined = undefined,
 ): Promise<T> {
   const within = (limitMs: number) => Math.max(1, Math.min(limitMs, Math.floor(budgetMs)));
   return orm.em.fork().transactional(async (em) => {
@@ -34,5 +36,5 @@ export function inTransaction<T>(
       ],
     );
     return work(exec);
-  });
+  }, mode);
 }

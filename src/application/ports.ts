@@ -1,3 +1,4 @@
+import type { Money } from "../domain/money";
 import type { WagerTransaction } from "../domain/wager-transaction";
 import type { Wallet, WalletLedgerEntry } from "../domain/wallet";
 
@@ -25,9 +26,18 @@ export interface LedgerPageQuery {
   limit: number;
 }
 
+export interface ReconciliationSnapshot {
+  wallet: Wallet;
+  calculated: Money;
+  entryCount: number;
+  maxVersion?: number;
+  tailBalance?: Money;
+}
+
 export abstract class WalletStore {
   abstract create(wallet: Wallet, openingEntry?: WalletLedgerEntry): Promise<void>;
   abstract findById(id: string): Promise<Wallet | undefined>;
+  abstract reconciliationSnapshot(walletId: string): Promise<ReconciliationSnapshot | undefined>;
   abstract ledgerPage(walletId: string, query: LedgerPageQuery): Promise<WalletLedgerEntry[]>;
 }
 

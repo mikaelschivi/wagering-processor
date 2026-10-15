@@ -17,6 +17,10 @@ export class InMemoryWalletStore extends WalletStore {
     if (openingEntry) this.entries.push(openingEntry);
   }
 
+  async reconciliationSnapshot(): Promise<undefined> {
+    return undefined;
+  }
+
   async ledgerPage(walletId: string, { beforeVersion, limit }: LedgerPageQuery): Promise<WalletLedgerEntry[]> {
     return this.entries
       .filter((entry) => entry.walletId === walletId && (beforeVersion === undefined || entry.walletVersion < beforeVersion))

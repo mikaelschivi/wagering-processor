@@ -21,6 +21,10 @@ class RecordingStore extends WalletStore {
     return this.inner.findById(id);
   }
 
+  reconciliationSnapshot() {
+    return Promise.resolve(undefined);
+  }
+
   ledgerPage() {
     return Promise.resolve([]);
   }
