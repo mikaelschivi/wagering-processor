@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { FailureCode, InvalidTransactionStateError, InvalidWagerTransactionError } from "./errors";
 import type { Money, MoneyProps } from "./money";
-import { LedgerDirection, type Wallet } from "./wallet";
+import { LedgerDirection, type Wallet, type WalletLedgerEntry } from "./wallet";
+
+export const INTERNAL_PROVIDER_ID = "__internal__";
 
 export enum WagerTransactionKind {
   Opening = "OPENING",
@@ -120,6 +122,30 @@ export class WagerTransaction {
       throw new InvalidWagerTransactionError("a transaction cannot reference itself");
     }
     return new WagerTransaction({ ...props, status: WagerTransactionStatus.Pending });
+  }
+
+  static opening(wallet: Wallet, entry: WalletLedgerEntry, correlationId: string): WagerTransaction {
+    const key = `opening:${wallet.id}`;
+    return new WagerTransaction({
+      id: entry.transactionId,
+      providerId: INTERNAL_PROVIDER_ID,
+      externalTransactionId: key,
+      idempotencyKey: key,
+      payloadHash: createHash("sha256")
+        .update(`OPENING:${wallet.id}:${wallet.playerId}:${entry.money.toString()}:${entry.money.currency}`)
+        .digest("hex"),
+      walletId: wallet.id,
+      playerId: wallet.playerId,
+      roundId: "opening",
+      gameId: "opening",
+      kind: WagerTransactionKind.Opening,
+      money: entry.money,
+      correlationId,
+      createdAt: entry.createdAt,
+      status: WagerTransactionStatus.Processed,
+      result: { balance: entry.balanceAfter, walletVersion: entry.walletVersion },
+      processedAt: entry.createdAt,
+    });
   }
 
   static rehydrate(state: WagerTransactionState): WagerTransaction {

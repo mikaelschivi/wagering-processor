@@ -1,4 +1,5 @@
 import {
+  type DomainEvent,
   type LockOptions,
   UniqueRaceError,
   type WagerChange,
@@ -27,6 +28,7 @@ export class InMemoryWagerStore extends WagerStore {
   readonly wallets = new Map<string, Wallet>();
   readonly transactions = new Map<string, WagerTransaction>();
   readonly entries: WalletLedgerEntry[] = [];
+  readonly events: DomainEvent[] = [];
   commits = 0;
   rollbacks = 0;
   attempts = 0;
@@ -148,7 +150,8 @@ export class InMemoryWagerStore extends WagerStore {
       if (this.byKey.has(key)) throw new UniqueRaceError("ux_tx_provider_idem");
       if (this.byExternal.has(external)) throw new UniqueRaceError("ux_tx_provider_external");
     }
-    for (const { transaction, wallet, entry } of pending) {
+    for (const { transaction, wallet, entry, events } of pending) {
+      if (events) this.events.push(...events);
       this.transactions.set(transaction.id, transaction);
       this.byKey.set(`${transaction.providerId}:${transaction.idempotencyKey}`, transaction.id);
       this.byExternal.set(`${transaction.providerId}:${transaction.externalTransactionId}`, transaction.id);

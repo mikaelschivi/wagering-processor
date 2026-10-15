@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { ProcessWagerTransaction, type WagerRequest } from "../../src/application/process-wager-transaction";
 import { InvariantDbError, TransientDbError, UniqueRaceError } from "../../src/application/ports";
+import { WagerTransactionProcessed } from "../../src/domain/events";
 import { FailureCode, IdempotencyKeyConflictError } from "../../src/domain/errors";
 import { Money } from "../../src/domain/money";
 import { WagerTransaction, WagerTransactionKind, WagerTransactionStatus } from "../../src/domain/wager-transaction";
@@ -9,6 +10,7 @@ import { PostgresWagerStore } from "../../src/infra/db/postgres-wager-store";
 import { PostgresWalletStore } from "../../src/infra/db/postgres-wallet-store";
 import { SystemClock, UuidV7Generator } from "../../src/infra/system";
 import { createTestDatabase, type TestDatabase } from "../helpers/db";
+import { openingRecord } from "../helpers/fakes";
 
 let db: TestDatabase;
 let wallets: PostgresWalletStore;
@@ -45,7 +47,7 @@ async function openWallet(balance: string) {
     openingEntryId: crypto.randomUUID(),
     at,
   });
-  await wallets.create(wallet, openingEntry);
+  await wallets.create(wallet, openingRecord(wallet, openingEntry));
   return wallet;
 }
 
@@ -309,5 +311,67 @@ describe("ProcessWagerTransaction on Postgres", () => {
 
     expect(await walletRow(wallet.id)).toMatchObject({ balance: "600.00", version: 41 });
     expect(await countWhere("wallet_ledger_entries", "wallet_id", wallet.id)).toBe(41);
+  });
+});
+
+describe("outbox in the same transaction", () => {
+  const outbox = (walletId: string) =>
+    query(
+      `select event_type, aggregate_id, partition_key, payload, published_at from outbox_messages
+        where partition_key = ? order by seq`,
+      [walletId],
+    );
+
+  test("a processed bet stores its transaction, ledger entry, wallet change and two events together", async () => {
+    const wallet = await openWallet("100.00");
+    const before = (await outbox(wallet.id)).length;
+    const result = await useCase.execute(command(request(wallet)));
+
+    const rows = (await outbox(wallet.id)).slice(before);
+    expect(rows.map((row) => row.event_type)).toEqual(["WagerTransactionProcessed", "WalletBalanceChanged"]);
+    expect(rows[0]).toMatchObject({ aggregate_id: result.transactionId, published_at: null });
+    expect(rows[1]).toMatchObject({ aggregate_id: wallet.id });
+    expect(rows[1]!.payload).toMatchObject({
+      eventType: "WalletBalanceChanged",
+      version: 1,
+      data: { walletVersion: 2, direction: "DEBIT", balanceAfter: { amount: "90.00", currency: "BRL" } },
+    });
+  });
+
+  test("a rejection stores one Rejected event and no balance event", async () => {
+    const wallet = await openWallet("5.00");
+    const before = (await outbox(wallet.id)).length;
+    await useCase.execute(command(request(wallet)));
+    expect((await outbox(wallet.id)).slice(before).map((row) => row.event_type)).toEqual(["WagerTransactionRejected"]);
+  });
+
+  test("a replay adds no events", async () => {
+    const wallet = await openWallet("100.00");
+    const cmd = command(request(wallet));
+    await useCase.execute(cmd);
+    const after = (await outbox(wallet.id)).length;
+    await useCase.execute(cmd);
+    expect((await outbox(wallet.id)).length).toBe(after);
+  });
+
+  test("a failure while writing events rolls back the transaction, ledger entry, wallet change and earlier events", async () => {
+    const wallet = await openWallet("100.00");
+    const tx = newTransaction(wallet);
+    const error = await store
+      .runLocked(wallet.id, { budgetMs: 5000 }, async (scope) => {
+        const loaded = (await scope.loadWallet())!;
+        const entry = loaded.debit({ money: tx.money, transactionId: tx.id, entryId: crypto.randomUUID(), at });
+        tx.markProcessed({ result: { balance: loaded.balance, walletVersion: loaded.version }, at });
+        const sameId = crypto.randomUUID();
+        const event = () => WagerTransactionProcessed.from(tx, { eventId: sameId, correlationId: "c", occurredAt: at });
+        await scope.save({ transaction: tx, wallet: loaded, entry, events: [event(), event()] });
+      })
+      .catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(InvariantDbError);
+    expect(await store.findByIdempotencyKey(tx.providerId, tx.idempotencyKey)).toBeUndefined();
+    expect(await walletRow(wallet.id)).toMatchObject({ balance: "100.00", version: 1 });
+    expect(await countWhere("wallet_ledger_entries", "transaction_id", tx.id)).toBe(0);
+    expect(await countWhere("outbox_messages", "aggregate_id", tx.id)).toBe(0);
   });
 });

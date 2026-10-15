@@ -647,3 +647,66 @@ describe("authorization", () => {
     expect((await execute(useCase, actor)).status).toBe(Status.Processed);
   });
 });
+
+describe("events", () => {
+  const types = (store: InMemoryWagerStore) => store.events.map((event) => event.eventType);
+
+  test("a processed bet emits Processed and BalanceChanged with the request's ids", async () => {
+    const { useCase, store } = setup();
+    const result = await useCase.execute({
+      request: bet("b1"),
+      actor: { kind: "anonymous-dev" },
+      idempotencyKey: "k",
+      correlationId: "corr-9",
+      causationId: "msg-1",
+    });
+    expect(types(store)).toEqual(["WagerTransactionProcessed", "WalletBalanceChanged"]);
+    expect(store.events.map((event) => event.toJSON())).toMatchObject([
+      { aggregateId: result.transactionId, correlationId: "corr-9", causationId: "msg-1" },
+      { aggregateId: "w1", correlationId: "corr-9", causationId: "msg-1", data: { walletVersion: 2, direction: "DEBIT" } },
+    ]);
+    expect(new Set(store.events.map((event) => event.eventId)).size).toBe(2);
+  });
+
+  test("a LOSS emits only Processed because the balance does not move", async () => {
+    const { useCase, store } = setup();
+    await submit(useCase, bet("b1"));
+    store.events.length = 0;
+    await submit(useCase, request("l1", Kind.Loss, "0.00", { referenceExternalTransactionId: "b1" }));
+    expect(types(store)).toEqual(["WagerTransactionProcessed"]);
+  });
+
+  test("a rejection emits Rejected only", async () => {
+    const { useCase, store } = setup("5.00");
+    await submit(useCase, bet("b1", "10.00"));
+    expect(types(store)).toEqual(["WagerTransactionRejected"]);
+    expect(store.events[0]!.toJSON()).toMatchObject({ data: { failureCode: FailureCode.InsufficientFunds } });
+  });
+
+  test("a missing reference emits PendingReference only", async () => {
+    const { useCase, store } = setup();
+    await submit(useCase, request("w1", Kind.Win, "10.00", { referenceExternalTransactionId: "nope" }));
+    expect(types(store)).toEqual(["WagerTransactionPendingReference"]);
+  });
+
+  test("a replay emits nothing new", async () => {
+    const { useCase, store } = setup();
+    await submit(useCase, bet("b1"));
+    await submit(useCase, bet("b1"));
+    expect(types(store)).toHaveLength(2);
+  });
+
+  test("a failed attempt that is retried publishes its events once", async () => {
+    const { useCase, store } = setup();
+    store.failAfterNextCommit(new UnknownCommitOutcomeError());
+    await submit(useCase, bet("b1"));
+    expect(types(store)).toEqual(["WagerTransactionProcessed", "WalletBalanceChanged"]);
+  });
+
+  test("an attempt rolled back before commit leaves no events", async () => {
+    const { useCase, store } = setup();
+    store.failNextSave = new TransientDbError("deadlock");
+    await submit(useCase, bet("b1"));
+    expect(types(store)).toHaveLength(2);
+  });
+});

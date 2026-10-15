@@ -1,3 +1,4 @@
+import type { IntegrationEvent } from "../domain/events";
 import type { Money } from "../domain/money";
 import type { WagerTransaction } from "../domain/wager-transaction";
 import type { Wallet, WalletLedgerEntry } from "../domain/wallet";
@@ -26,6 +27,13 @@ export interface LedgerPageQuery {
   limit: number;
 }
 
+export type DomainEvent = IntegrationEvent<{ walletId: string }>;
+
+export interface OpeningRecord {
+  transaction: WagerTransaction;
+  entry: WalletLedgerEntry;
+}
+
 export interface ReconciliationSnapshot {
   wallet: Wallet;
   calculated: Money;
@@ -35,7 +43,7 @@ export interface ReconciliationSnapshot {
 }
 
 export abstract class WalletStore {
-  abstract create(wallet: Wallet, openingEntry?: WalletLedgerEntry): Promise<void>;
+  abstract create(wallet: Wallet, opening?: OpeningRecord, events?: DomainEvent[]): Promise<void>;
   abstract findById(id: string): Promise<Wallet | undefined>;
   abstract reconciliationSnapshot(walletId: string): Promise<ReconciliationSnapshot | undefined>;
   abstract ledgerPage(walletId: string, query: LedgerPageQuery): Promise<WalletLedgerEntry[]>;
@@ -45,6 +53,7 @@ export interface WagerChange {
   transaction: WagerTransaction;
   wallet?: Wallet;
   entry?: WalletLedgerEntry;
+  events?: DomainEvent[];
 }
 
 export interface WagerStoreTx {

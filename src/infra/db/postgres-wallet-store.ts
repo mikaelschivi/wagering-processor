@@ -1,14 +1,19 @@
-import { createHash } from "node:crypto";
 import type { MikroORM } from "@mikro-orm/postgresql";
 import { IsolationLevel } from "@mikro-orm/core";
-import { type LedgerPageQuery, type ReconciliationSnapshot, WalletStore } from "../../application/ports";
+import {
+  type DomainEvent,
+  type LedgerPageQuery,
+  type OpeningRecord,
+  type ReconciliationSnapshot,
+  WalletStore,
+} from "../../application/ports";
 import type { AppConfig } from "../../config";
 import { WalletAlreadyExistsError } from "../../domain/errors";
 import { Money } from "../../domain/money";
 import { type LedgerDirection, Wallet, WalletLedgerEntry } from "../../domain/wallet";
+import { ledgerRow, transactionRow, writeEvents } from "./postgres-wager-store";
 import { inTransaction, insert, isoUtc } from "./transaction";
 
-const INTERNAL_PROVIDER_ID = "__internal__";
 const WALLET_UNIQUE = "ux_wallet_player_currency";
 
 export class PostgresWalletStore extends WalletStore {
@@ -19,7 +24,7 @@ export class PostgresWalletStore extends WalletStore {
     super();
   }
 
-  async create(wallet: Wallet, openingEntry?: WalletLedgerEntry): Promise<void> {
+  async create(wallet: Wallet, opening?: OpeningRecord, events?: DomainEvent[]): Promise<void> {
     try {
       await inTransaction(this.orm, this.config, async (exec) => {
         await insert(exec, "wallets", {
@@ -31,21 +36,11 @@ export class PostgresWalletStore extends WalletStore {
           created_at: wallet.createdAt,
           updated_at: wallet.updatedAt,
         });
-        if (openingEntry) {
-          await insert(exec, "wager_transactions", this.openingTransaction(wallet, openingEntry));
-          await insert(exec, "wallet_ledger_entries", {
-            id: openingEntry.id,
-            wallet_id: openingEntry.walletId,
-            transaction_id: openingEntry.transactionId,
-            direction: openingEntry.direction,
-            amount: openingEntry.money.toString(),
-            currency: openingEntry.money.currency,
-            balance_before: openingEntry.balanceBefore.toString(),
-            balance_after: openingEntry.balanceAfter.toString(),
-            wallet_version: openingEntry.walletVersion,
-            created_at: openingEntry.createdAt,
-          });
+        if (opening) {
+          await insert(exec, "wager_transactions", transactionRow(opening.transaction));
+          await insert(exec, "wallet_ledger_entries", ledgerRow(opening.entry));
         }
+        await writeEvents(exec, events);
       });
     } catch (error) {
       if ((error as { constraint?: string }).constraint === WALLET_UNIQUE) {
@@ -150,33 +145,5 @@ export class PostgresWalletStore extends WalletStore {
       .fork()
       .execute("select id from wallets where player_id = ? and currency = ?", [wallet.playerId, wallet.currency]);
     return row!.id as string;
-  }
-
-  private openingTransaction(wallet: Wallet, entry: WalletLedgerEntry) {
-    const key = `opening:${wallet.id}`;
-    return {
-      id: entry.transactionId,
-      provider_id: INTERNAL_PROVIDER_ID,
-      external_transaction_id: key,
-      idempotency_key: key,
-      payload_hash: createHash("sha256")
-        .update(`OPENING:${wallet.id}:${wallet.playerId}:${entry.money.toString()}:${entry.money.currency}`)
-        .digest("hex"),
-      wallet_id: wallet.id,
-      player_id: wallet.playerId,
-      round_id: "opening",
-      game_id: "opening",
-      kind: "OPENING",
-      amount: entry.money.toString(),
-      currency: entry.money.currency,
-      status: "PROCESSED",
-      result_balance: entry.balanceAfter.toString(),
-      result_currency: entry.balanceAfter.currency,
-      result_wallet_version: entry.walletVersion,
-      correlation_id: entry.transactionId,
-      created_at: entry.createdAt,
-      updated_at: entry.createdAt,
-      processed_at: entry.createdAt,
-    };
   }
 }

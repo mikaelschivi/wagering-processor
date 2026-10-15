@@ -222,3 +222,30 @@ describe("persistence and multiple instances", () => {
     expect(counts).toEqual({ txs: "0", entries: "0" });
   });
 });
+
+describe("opening events", () => {
+  const events = (walletId: string) =>
+    db.owner.em
+      .fork()
+      .execute(
+        "select event_type, payload->>'correlationId' as correlation_id from outbox_messages where partition_key = ? order by seq",
+        [walletId],
+      );
+
+  test("a funded wallet stores two events and its opening transaction under the request's correlation id", async () => {
+    const response = await post(payload("50.00"), { "x-correlation-id": "corr-open-1" });
+    const { id } = (await response.json()) as { id: string };
+    expect(await events(id)).toEqual([
+      { event_type: "WagerTransactionProcessed", correlation_id: "corr-open-1" },
+      { event_type: "WalletBalanceChanged", correlation_id: "corr-open-1" },
+    ]);
+    const [opening] = await db.owner.em.fork().execute("select correlation_id from wager_transactions where wallet_id = ?", [id]);
+    expect(opening).toEqual({ correlation_id: "corr-open-1" });
+  });
+
+  test("a zero wallet stores no events", async () => {
+    const response = await post(payload("0.00"));
+    const { id } = (await response.json()) as { id: string };
+    expect(await events(id)).toEqual([]);
+  });
+});

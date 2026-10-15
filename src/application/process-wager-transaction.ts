@@ -6,6 +6,13 @@ import {
   TransientInfrastructureError,
   WalletNotFoundError,
 } from "../domain/errors";
+import {
+  type EventContext,
+  WagerTransactionPendingReference,
+  WagerTransactionProcessed,
+  WagerTransactionRejected,
+  WalletBalanceChanged,
+} from "../domain/events";
 import type { Money, MoneyProps } from "../domain/money";
 import {
   decide,
@@ -61,6 +68,7 @@ export interface ProcessWagerCommand {
   actor: Principal;
   idempotencyKey: string;
   correlationId: string;
+  causationId?: string;
 }
 
 export interface WagerResult {
@@ -165,14 +173,24 @@ export class ProcessWagerTransaction {
     const outcome = decide({ wallet, transaction, reference, reversalExists });
     const snapshot = (): ResultSnapshot => ({ balance: wallet.balance, walletVersion: wallet.version });
 
+    const context = (): EventContext => ({
+      eventId: this.ids.next(),
+      correlationId: command.correlationId,
+      ...(command.causationId !== undefined && { causationId: command.causationId }),
+      occurredAt: at,
+    });
+
     switch (outcome.type) {
       case "rejected":
         transaction.reject(outcome.code, snapshot());
-        await tx.save({ transaction });
+        await tx.save({ transaction, events: [WagerTransactionRejected.from(transaction, context())] });
         break;
       case "pending-reference":
         transaction.markPendingReference(snapshot());
-        await tx.save({ transaction });
+        await tx.save({
+          transaction,
+          events: [WagerTransactionPendingReference.from(transaction, context())],
+        });
         break;
       case "processed": {
         const entry = outcome.direction && this.move(wallet, transaction, outcome.direction, at);
@@ -181,7 +199,11 @@ export class ProcessWagerTransaction {
           result: snapshot(),
           at,
         });
-        await tx.save({ transaction, ...(entry && { wallet, entry }) });
+        const events = [
+          WagerTransactionProcessed.from(transaction, context()),
+          ...(entry ? [WalletBalanceChanged.from(wallet, entry, context())] : []),
+        ];
+        await tx.save({ transaction, events, ...(entry && { wallet, entry }) });
         break;
       }
     }

@@ -1,4 +1,6 @@
 import { Clock, IdGenerator } from "../../src/application/ports";
+import { WagerTransaction } from "../../src/domain/wager-transaction";
+import type { Wallet, WalletLedgerEntry } from "../../src/domain/wallet";
 
 export class FixedClock extends Clock {
   readonly sleeps: number[] = [];
@@ -24,3 +26,6 @@ export class SequentialIds extends IdGenerator {
     return `id-${++this.n}`;
   }
 }
+
+export const openingRecord = (wallet: Wallet, entry: WalletLedgerEntry | undefined) =>
+  entry && { entry, transaction: WagerTransaction.opening(wallet, entry, "corr-test") };

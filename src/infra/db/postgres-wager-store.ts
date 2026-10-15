@@ -1,5 +1,6 @@
 import type { MikroORM } from "@mikro-orm/postgresql";
 import {
+  type DomainEvent,
   InvariantDbError,
   type LockOptions,
   TransientDbError,
@@ -17,7 +18,7 @@ import {
   type WagerTransactionKind,
   WagerTransactionStatus,
 } from "../../domain/wager-transaction";
-import { Wallet } from "../../domain/wallet";
+import { Wallet, type WalletLedgerEntry } from "../../domain/wallet";
 import { REFERENCE_FIRST_ATTEMPT_DELAY_MS } from "../../globals";
 import { type Exec, inTransaction, insert, isoUtc } from "./transaction";
 
@@ -121,9 +122,9 @@ async function findInternalId(exec: Exec, id: string) {
   return row && toTransaction(row);
 }
 
-async function writeChange(exec: Exec, { transaction, wallet, entry }: WagerChange): Promise<void> {
+export function transactionRow(transaction: WagerTransaction) {
   const status = transaction.status;
-  await insert(exec, "wager_transactions", {
+  return {
     id: transaction.id,
     provider_id: transaction.providerId,
     external_transaction_id: transaction.externalTransactionId,
@@ -151,10 +152,11 @@ async function writeChange(exec: Exec, { transaction, wallet, entry }: WagerChan
     created_at: transaction.createdAt,
     updated_at: transaction.processedAt ?? transaction.createdAt,
     processed_at: transaction.processedAt ?? null,
-  });
-  if (!entry || !wallet) return;
+  };
+}
 
-  await insert(exec, "wallet_ledger_entries", {
+export function ledgerRow(entry: WalletLedgerEntry) {
+  return {
     id: entry.id,
     wallet_id: entry.walletId,
     transaction_id: entry.transactionId,
@@ -165,12 +167,35 @@ async function writeChange(exec: Exec, { transaction, wallet, entry }: WagerChan
     balance_after: entry.balanceAfter.toString(),
     wallet_version: entry.walletVersion,
     created_at: entry.createdAt,
-  });
-  const updated = await exec(
-    "update wallets set balance = ?, version = ?, updated_at = ? where id = ? and version = ? returning id",
-    [wallet.balance.toString(), wallet.version, wallet.updatedAt, wallet.id, wallet.version - 1],
-  );
-  if (updated.length !== 1) throw new InvariantDbError("CONCURRENT_WALLET_UPDATE");
+  };
+}
+
+export async function writeEvents(exec: Exec, events: DomainEvent[] = []): Promise<void> {
+  for (const event of events) {
+    await insert(exec, "outbox_messages", {
+      id: event.eventId,
+      aggregate_id: event.aggregateId,
+      partition_key: event.partitionKey,
+      event_type: event.eventType,
+      event_version: event.version,
+      payload: JSON.stringify(event.toJSON()),
+      occurred_at: event.occurredAt,
+      next_attempt_at: event.occurredAt,
+    });
+  }
+}
+
+async function writeChange(exec: Exec, { transaction, wallet, entry, events }: WagerChange): Promise<void> {
+  await insert(exec, "wager_transactions", transactionRow(transaction));
+  if (entry && wallet) {
+    await insert(exec, "wallet_ledger_entries", ledgerRow(entry));
+    const updated = await exec(
+      "update wallets set balance = ?, version = ?, updated_at = ? where id = ? and version = ? returning id",
+      [wallet.balance.toString(), wallet.version, wallet.updatedAt, wallet.id, wallet.version - 1],
+    );
+    if (updated.length !== 1) throw new InvariantDbError("CONCURRENT_WALLET_UPDATE");
+  }
+  await writeEvents(exec, events);
 }
 
 export class PostgresWagerStore extends WagerStore {

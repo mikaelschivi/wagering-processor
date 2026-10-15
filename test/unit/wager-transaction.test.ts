@@ -518,3 +518,31 @@ describe("decide", () => {
     expect([w.balance.toString(), w.version, tx.status]).toEqual(["100.00", 3, Status.Pending]);
   });
 });
+
+describe("WagerTransaction.opening", () => {
+  test("builds a processed internal OPENING transaction from the opening entry", () => {
+    const { wallet, openingEntry } = Wallet.open({
+      id: "wallet-1",
+      playerId: "player-1",
+      initialBalance: brl("50.00"),
+      openingTransactionId: "tx-open",
+      openingEntryId: "entry-1",
+      at: t0,
+    });
+    const tx = WagerTransaction.opening(wallet, openingEntry!, "corr-7");
+    expect(tx).toMatchObject({
+      id: "tx-open",
+      providerId: "__internal__",
+      kind: Kind.Opening,
+      status: Status.Processed,
+      walletId: "wallet-1",
+      correlationId: "corr-7",
+      idempotencyKey: "opening:wallet-1",
+      createdAt: t0,
+      processedAt: t0,
+    });
+    expect(tx.money.toString()).toBe("50.00");
+    expect(tx.result).toEqual({ balance: brl("50.00"), walletVersion: 1 });
+    expect(tx.payloadHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+});

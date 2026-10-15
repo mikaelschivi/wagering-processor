@@ -4,7 +4,9 @@ import { Money } from "../../src/domain/money";
 import { LedgerDirection, Wallet, WalletLedgerEntry } from "../../src/domain/wallet";
 import { PostgresWalletStore } from "../../src/infra/db/postgres-wallet-store";
 import { inTransaction } from "../../src/infra/db/transaction";
+import { WagerTransaction } from "../../src/domain/wager-transaction";
 import { createTestDatabase, type TestDatabase } from "../helpers/db";
+import { openingRecord } from "../helpers/fakes";
 
 let db: TestDatabase;
 let store: PostgresWalletStore;
@@ -38,7 +40,7 @@ const count = async (table: string) => Number(((await query(`select count(*) as 
 describe("PostgresWalletStore", () => {
   test("a stored wallet reads back with the same state", async () => {
     const { wallet, openingEntry } = open("123.45");
-    await store.create(wallet, openingEntry);
+    await store.create(wallet, openingRecord(wallet, openingEntry));
     const loaded = (await store.findById(wallet.id))!;
     expect(loaded.id).toBe(wallet.id);
     expect(loaded.playerId).toBe(wallet.playerId);
@@ -55,7 +57,7 @@ describe("PostgresWalletStore", () => {
 
   test("the opening entry is stored with its transaction and ties out to the balance", async () => {
     const { wallet, openingEntry } = open("50.00");
-    await store.create(wallet, openingEntry);
+    await store.create(wallet, openingRecord(wallet, openingEntry));
     const [row] = await query(
       `select t.kind, t.provider_id, t.status, t.result_balance, l.direction, l.balance_before, l.balance_after, l.wallet_version
          from wager_transactions t join wallet_ledger_entries l on l.transaction_id = t.id where t.wallet_id = ?`,
@@ -89,11 +91,11 @@ describe("PostgresWalletStore", () => {
 
   test("a duplicate player and currency names the existing wallet and writes nothing", async () => {
     const first = open("10.00");
-    await store.create(first.wallet, first.openingEntry);
+    await store.create(first.wallet, openingRecord(first.wallet, first.openingEntry));
     const before = [await count("wallets"), await count("wager_transactions"), await count("wallet_ledger_entries")];
 
     const second = open("20.00", first.wallet.playerId);
-    const error = await store.create(second.wallet, second.openingEntry).catch((e: unknown) => e);
+    const error = await store.create(second.wallet, openingRecord(second.wallet, second.openingEntry)).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(WalletAlreadyExistsError);
     expect((error as WalletAlreadyExistsError).existingWalletId).toBe(first.wallet.id);
@@ -113,7 +115,7 @@ describe("PostgresWalletStore", () => {
       walletVersion: 1,
       createdAt: at,
     });
-    const error = (await store.create(wallet, inconsistent).catch((e: unknown) => e)) as { code?: string };
+    const error = (await store.create(wallet, { entry: inconsistent, transaction: WagerTransaction.opening(wallet, inconsistent, "corr-test") }).catch((e: unknown) => e)) as { code?: string };
     expect(error.code).toBe("WG001");
     expect(await store.findById(wallet.id)).toBeUndefined();
     const [row] = await query("select count(*) as n from wager_transactions where wallet_id = ?", [wallet.id]);

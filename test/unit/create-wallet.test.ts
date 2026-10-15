@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CreateWallet } from "../../src/application/create-wallet";
-import { WalletStore } from "../../src/application/ports";
+import { type DomainEvent, type OpeningRecord, WalletStore } from "../../src/application/ports";
 import { InvalidMoneyError, WalletAlreadyExistsError } from "../../src/domain/errors";
 import type { Wallet, WalletLedgerEntry } from "../../src/domain/wallet";
 import { FixedClock, SequentialIds } from "../helpers/fakes";
@@ -11,10 +11,12 @@ const now = new FixedClock().now();
 class RecordingStore extends WalletStore {
   readonly inner = new InMemoryWalletStore();
   readonly entries: (WalletLedgerEntry | undefined)[] = [];
+  readonly events: DomainEvent[] = [];
 
-  async create(wallet: Wallet, openingEntry?: WalletLedgerEntry) {
+  async create(wallet: Wallet, opening?: OpeningRecord, events: DomainEvent[] = []) {
     await this.inner.create(wallet);
-    this.entries.push(openingEntry);
+    this.entries.push(opening?.entry);
+    this.events.push(...events);
   }
 
   findById(id: string) {
@@ -38,6 +40,7 @@ function setup() {
 const command = (amount: string, playerId = "player-1", currency = "BRL") => ({
   playerId,
   initialBalance: { amount, currency },
+  correlationId: "corr-1",
 });
 
 describe("CreateWallet", () => {
@@ -56,6 +59,32 @@ describe("CreateWallet", () => {
     const entry = store.entries[0]!;
     expect(entry).toMatchObject({ walletId: "id-1", transactionId: "id-2", id: "id-3", walletVersion: 1 });
     expect(entry.balanceAfter.toString()).toBe("50.00");
+  });
+
+  test("a funded wallet emits the opening events with the request's correlation id", async () => {
+    const { useCase, store } = setup();
+    await useCase.execute(command("50.00"));
+    expect(store.events.map((event) => event.toJSON())).toMatchObject([
+      {
+        eventType: "WagerTransactionProcessed",
+        aggregateId: "id-2",
+        correlationId: "corr-1",
+        data: { kind: "OPENING", status: "PROCESSED", walletId: "id-1", balance: { amount: "50.00" } },
+      },
+      {
+        eventType: "WalletBalanceChanged",
+        aggregateId: "id-1",
+        correlationId: "corr-1",
+        data: { direction: "CREDIT", walletVersion: 1, balanceAfter: { amount: "50.00" } },
+      },
+    ]);
+    expect(new Set(store.events.map((event) => event.eventId)).size).toBe(2);
+  });
+
+  test("a zero balance emits no events", async () => {
+    const { useCase, store } = setup();
+    await useCase.execute(command("0.00"));
+    expect(store.events).toEqual([]);
   });
 
   test("a zero balance creates the wallet with no ledger entry", async () => {

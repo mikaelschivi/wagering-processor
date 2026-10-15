@@ -58,9 +58,10 @@ export class WalletsController {
   @Post()
   @AdminRoute()
   @HttpCode(201)
-  async create(@Body() body: unknown) {
+  async create(@Body() body: unknown, @Headers("x-correlation-id") correlationHeader: string | undefined) {
     const command = validate(createWalletBody(this.config.SUPPORTED_CURRENCIES), body);
-    return walletView(await this.createWallet.execute(command));
+    const correlationId = correlationIdFrom(correlationHeader);
+    return walletView(await this.createWallet.execute({ ...command, correlationId }));
   }
 
   @Get(":walletId")
