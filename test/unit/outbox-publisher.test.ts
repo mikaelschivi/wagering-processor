@@ -22,6 +22,9 @@ class FakeStore extends OutboxStore {
   readonly published: string[] = [];
   readonly failed: OutboxFailure[] = [];
   batches = 0;
+  async stats() {
+    return { pending: 0, oldestAgeSeconds: 0 };
+  }
   constructor(private readonly pending: OutboxMessage[][]) {
     super();
   }

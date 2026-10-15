@@ -27,7 +27,7 @@ beforeEach(async () => {
 
 const query = (sql: string, params?: unknown[]) => db.owner.em.fork().execute(sql, params);
 
-async function seed(count: number, overrides: { published?: boolean; delaySeconds?: number } = {}) {
+async function seed(count: number, overrides: { published?: boolean; delaySeconds?: number; ageSeconds?: number } = {}) {
   const ids: string[] = [];
   for (let n = 0; n < count; n++) {
     const id = crypto.randomUUID();
@@ -35,13 +35,14 @@ async function seed(count: number, overrides: { published?: boolean; delaySecond
     await db.app.em.fork().execute(
       `insert into outbox_messages
          (id, aggregate_id, partition_key, event_type, event_version, payload, occurred_at, next_attempt_at, published_at)
-       values (?, ?, ?, 'WalletBalanceChanged', 1, ?, now(), now() + make_interval(secs => ?),
+       values (?, ?, ?, 'WalletBalanceChanged', 1, ?, now() - make_interval(secs => ?), now() + make_interval(secs => ?),
                case when ? then now() else null end)`,
       [
         id,
         crypto.randomUUID(),
         crypto.randomUUID(),
         JSON.stringify({ eventId: id }),
+        overrides.ageSeconds ?? 0,
         overrides.delaySeconds ?? 0,
         overrides.published ?? false,
       ],
@@ -74,6 +75,20 @@ const publisher = (sender: EventSender, batchSize = 10) =>
 
 const row = async (id: string) =>
   (await query("select attempts, last_error, published_at, next_attempt_at > now() as waiting from outbox_messages where id = ?", [id]))[0]!;
+
+describe("outbox stats", () => {
+  test("counts only unpublished events and reports the age of the oldest", async () => {
+    expect(await store.stats()).toEqual({ pending: 0, oldestAgeSeconds: 0 });
+    await seed(1, { published: true });
+    await seed(1, { ageSeconds: 90 });
+    await seed(2);
+
+    const stats = await store.stats();
+    expect(stats.pending).toBe(3);
+    expect(stats.oldestAgeSeconds).toBeGreaterThan(89);
+    expect(stats.oldestAgeSeconds).toBeLessThan(100);
+  });
+});
 
 describe("outbox publishing on Postgres", () => {
   test("publishes unpublished due rows in sequence order and ignores published and future ones", async () => {

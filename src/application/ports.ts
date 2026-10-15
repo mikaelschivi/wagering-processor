@@ -61,7 +61,13 @@ export interface OutboxBatch {
   markFailed(failures: OutboxFailure[]): Promise<void>;
 }
 
+export interface OutboxStats {
+  pending: number;
+  oldestAgeSeconds: number;
+}
+
 export abstract class OutboxStore {
+  abstract stats(): Promise<OutboxStats>;
   abstract withBatch<T>(limit: number, work: (batch: OutboxBatch) => Promise<T>): Promise<T>;
 }
 
@@ -142,6 +148,7 @@ export interface LockOptions {
 export abstract class WagerStore {
   abstract findByIdempotencyKey(providerId: string, key: string): Promise<WagerTransaction | undefined>;
   abstract findById(id: string): Promise<WagerTransaction | undefined>;
+  abstract pendingReferenceCount(): Promise<number>;
   abstract claimDueReferences(limit: number, leaseS: number): Promise<PendingReferenceItem[]>;
   abstract findByExternalId(providerId: string, externalTransactionId: string): Promise<WagerTransaction | undefined>;
   abstract runLocked<T>(walletId: string, options: LockOptions, work: (tx: WagerStoreTx) => Promise<T>): Promise<T>;

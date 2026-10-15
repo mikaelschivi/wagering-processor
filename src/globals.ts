@@ -20,6 +20,7 @@ export const USE_CASE_MAX_ATTEMPTS = 5;
 export const RETRY_JITTER_MIN_MS = 5;
 export const RETRY_JITTER_MAX_MS = 25;
 export const HTTP_BODY_LIMIT = "16kb";
+export const METRICS_LOG_INTERVAL_S = 30;
 export const SQS_WAIT_TIME_S = 20;
 export const SQS_CONSUMER_CONCURRENCY = 8;
 export const OUTBOX_INTERVAL_MS = 500;

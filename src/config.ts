@@ -53,6 +53,7 @@ const schema = z.object({
   REFERENCE_TTL_MS: positiveInt(defaults.REFERENCE_TTL_MS),
   REFERENCE_MAX_FAILURES: positiveInt(defaults.REFERENCE_MAX_FAILURES),
   OUTBOX_SQS_REQUEST_TIMEOUT_MS: positiveInt(defaults.OUTBOX_SQS_REQUEST_TIMEOUT_MS),
+  METRICS_LOG_INTERVAL_S: z.coerce.number().int().min(0).default(defaults.METRICS_LOG_INTERVAL_S),
   SQS_WAIT_TIME_S: z.coerce.number().int().min(0).max(20).default(defaults.SQS_WAIT_TIME_S),
   SQS_CONSUMER_CONCURRENCY: positiveInt(defaults.SQS_CONSUMER_CONCURRENCY),
   OUTBOX_INTERVAL_MS: positiveInt(defaults.OUTBOX_INTERVAL_MS),

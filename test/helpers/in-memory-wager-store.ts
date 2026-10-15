@@ -105,6 +105,10 @@ export class InMemoryWagerStore extends WagerStore {
     return this.lookup(providerId, key);
   }
 
+  async pendingReferenceCount() {
+    return [...this.transactions.values()].filter((tx) => tx.status === WagerTransactionStatus.PendingReference).length;
+  }
+
   async claimDueReferences(limit: number) {
     this.claims++;
     return [...this.transactions.values()]

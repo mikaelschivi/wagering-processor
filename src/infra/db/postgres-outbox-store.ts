@@ -1,5 +1,5 @@
 import type { MikroORM } from "@mikro-orm/postgresql";
-import { type OutboxBatch, type OutboxFailure, type OutboxMessage, OutboxStore } from "../../application/ports";
+import { type OutboxBatch, type OutboxFailure, type OutboxMessage, type OutboxStats, OutboxStore } from "../../application/ports";
 import type { AppConfig } from "../../config";
 import { type Exec, inTransaction } from "./transaction";
 
@@ -11,6 +11,15 @@ export class PostgresOutboxStore extends OutboxStore {
     private readonly config: AppConfig,
   ) {
     super();
+  }
+
+  async stats(): Promise<OutboxStats> {
+    const [row] = await this.orm.em.fork().execute(
+      `select count(*)::int as pending,
+              coalesce(extract(epoch from now() - min(occurred_at)), 0)::float8 as age
+         from outbox_messages where published_at is null`,
+    );
+    return { pending: row!.pending as number, oldestAgeSeconds: Math.max(0, row!.age as number) };
   }
 
   withBatch<T>(limit: number, work: (batch: OutboxBatch) => Promise<T>): Promise<T> {

@@ -287,6 +287,13 @@ export class PostgresWagerStore extends WagerStore {
     return this.read(() => findOne(this.exec, "idempotency_key", providerId, key));
   }
 
+  async pendingReferenceCount(): Promise<number> {
+    return this.read(async () => {
+      const [row] = await this.exec("select count(*)::int as n from wager_transactions where status = 'PENDING_REFERENCE'");
+      return row!.n as number;
+    });
+  }
+
   async claimDueReferences(limit: number, leaseS: number): Promise<PendingReferenceItem[]> {
     try {
       const rows = await inTransaction(this.orm, this.config, (exec) =>

@@ -172,6 +172,9 @@ describe("worker, publisher and reconciliation metrics", () => {
   test("the outbox publisher counts published and failed events", async () => {
     const messages: OutboxMessage[] = ["a", "b", "c"].map((id) => ({ id, partitionKey: "w", eventType: "X", payload: "{}", attempts: 0 }));
     const store = new (class extends OutboxStore {
+      async stats() {
+        return { pending: 0, oldestAgeSeconds: 0 };
+      }
       async withBatch<T>(_limit: number, work: (batch: OutboxBatch) => Promise<T>) {
         return work({ messages, markPublished: async () => {}, markFailed: async () => {} });
       }

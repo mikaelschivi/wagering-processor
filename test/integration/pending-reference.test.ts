@@ -96,6 +96,20 @@ const balance = async (wallet: Wallet) =>
 const row = async (transactionId: string) => (await query("select * from wager_transactions where id = ?", [transactionId]))[0] as Record<string, unknown>;
 const reconcile = (wallet: Wallet) => new Reconciliation(wallets).execute(wallet.id);
 
+describe("pending reference count", () => {
+  test("counts only transactions still waiting for their reference", async () => {
+    const before = await store.pendingReferenceCount();
+    const wallet = await openWallet();
+    await submit(wallet, "w1", Kind.Win, "1.00", { referenceExternalTransactionId: "b1" });
+    await submit(wallet, "w2", Kind.Win, "1.00", { referenceExternalTransactionId: "b2" });
+    expect(await store.pendingReferenceCount()).toBe(before + 2);
+
+    await submit(wallet, "b1", Kind.Bet, "1.00");
+    await makeWorker().runOnce();
+    expect(await store.pendingReferenceCount()).toBe(before + 1);
+  });
+});
+
 describe("claiming due references", () => {
   test("a freshly pending transaction is not due, a due one is claimed once and then leased", async () => {
     const wallet = await openWallet();
