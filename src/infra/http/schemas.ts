@@ -82,3 +82,34 @@ export const transactionParams = z.object({ transactionId: uuid }).strict();
 export const providerTransactionParams = z
   .object({ providerId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/), externalTransactionId: identifier })
   .strict();
+
+const DEFAULT_LEDGER_LIMIT = 50;
+const MAX_LEDGER_LIMIT = 100;
+
+export const encodeCursor = (walletVersion: number): string =>
+  Buffer.from(JSON.stringify({ v: 1, w: walletVersion })).toString("base64url");
+
+function decodeCursor(cursor: string): number {
+  try {
+    const parsed = z
+      .object({ v: z.literal(1), w: z.number().int().min(1) })
+      .strict()
+      .parse(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")));
+    return parsed.w;
+  } catch {
+    throw new RequestValidationError([{ path: "cursor", reason: "invalid_cursor" }]);
+  }
+}
+
+export const ledgerQuery = z
+  .object({
+    cursor: z.string().min(1).max(200).optional(),
+    limit: z
+      .string()
+      .regex(/^[0-9]{1,3}$/)
+      .transform(Number)
+      .pipe(z.number().int().min(1).max(MAX_LEDGER_LIMIT))
+      .default(String(DEFAULT_LEDGER_LIMIT)),
+  })
+  .strict()
+  .transform(({ cursor, limit }) => ({ limit, ...(cursor !== undefined && { beforeVersion: decodeCursor(cursor) }) }));

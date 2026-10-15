@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Res } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Query, Res } from "@nestjs/common";
 import { CreateWallet } from "../../application/create-wallet";
 import { ProcessWagerTransaction, type WagerResult } from "../../application/process-wager-transaction";
 import { type Principal, WagerStore, WalletStore } from "../../application/ports";
@@ -6,11 +6,13 @@ import { APP_CONFIG, type AppConfig } from "../../config";
 import { NotFoundError } from "../../domain/errors";
 import { Money } from "../../domain/money";
 import { WagerTransactionStatus, type WagerTransaction } from "../../domain/wager-transaction";
-import type { Wallet } from "../../domain/wallet";
+import type { Wallet, WalletLedgerEntry } from "../../domain/wallet";
 import { AdminRoute, CurrentPrincipal, ProviderRoute } from "./auth";
 import {
   correlationIdFrom,
   createWalletBody,
+  encodeCursor,
+  ledgerQuery,
   providerTransactionParams,
   requireIdempotencyKey,
   transactionParams,
@@ -25,6 +27,19 @@ function walletView(wallet: Wallet) {
     playerId: wallet.playerId,
     balance: wallet.balance.toJSON(),
     version: wallet.version,
+  };
+}
+
+function ledgerEntryView(entry: WalletLedgerEntry) {
+  return {
+    id: entry.id,
+    transactionId: entry.transactionId,
+    direction: entry.direction,
+    amount: entry.money.toJSON(),
+    balanceBefore: entry.balanceBefore.toJSON(),
+    balanceAfter: entry.balanceAfter.toJSON(),
+    walletVersion: entry.walletVersion,
+    createdAt: entry.createdAt.toISOString(),
   };
 }
 
@@ -51,6 +66,21 @@ export class WalletsController {
     const wallet = await this.store.findById(walletId);
     if (!wallet) throw new NotFoundError("wallet not found");
     return walletView(wallet);
+  }
+
+  @Get(":walletId/ledger")
+  @ProviderRoute()
+  async ledger(@Param() params: unknown, @Query() query: unknown) {
+    const { walletId } = validate(walletParams, params);
+    const { limit, beforeVersion } = validate(ledgerQuery, query);
+    if (!(await this.store.findById(walletId))) throw new NotFoundError("wallet not found");
+    const rows = await this.store.ledgerPage(walletId, { limit: limit + 1, ...(beforeVersion && { beforeVersion }) });
+    const items = rows.slice(0, limit);
+    const last = items.at(-1);
+    return {
+      items: items.map(ledgerEntryView),
+      nextCursor: rows.length > limit && last ? encodeCursor(last.walletVersion) : null,
+    };
   }
 }
 

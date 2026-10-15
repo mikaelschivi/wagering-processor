@@ -20,9 +20,15 @@ export abstract class ProviderIdentityPort {
   abstract resolve(request: { header(name: string): string | undefined }): Principal;
 }
 
+export interface LedgerPageQuery {
+  beforeVersion?: number;
+  limit: number;
+}
+
 export abstract class WalletStore {
   abstract create(wallet: Wallet, openingEntry?: WalletLedgerEntry): Promise<void>;
   abstract findById(id: string): Promise<Wallet | undefined>;
+  abstract ledgerPage(walletId: string, query: LedgerPageQuery): Promise<WalletLedgerEntry[]>;
 }
 
 export interface WagerChange {

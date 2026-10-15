@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import type { MikroORM } from "@mikro-orm/postgresql";
-import { WalletStore } from "../../application/ports";
+import { type LedgerPageQuery, WalletStore } from "../../application/ports";
 import type { AppConfig } from "../../config";
 import { WalletAlreadyExistsError } from "../../domain/errors";
 import { Money } from "../../domain/money";
-import { Wallet, type WalletLedgerEntry } from "../../domain/wallet";
+import { type LedgerDirection, Wallet, WalletLedgerEntry } from "../../domain/wallet";
 import { inTransaction, insert, isoUtc } from "./transaction";
 
 const INTERNAL_PROVIDER_ID = "__internal__";
@@ -71,6 +71,32 @@ export class PostgresWalletStore extends WalletStore {
       version: row.version as number,
       createdAt: new Date(row.created_at as string),
       updatedAt: new Date(row.updated_at as string),
+    });
+  }
+
+  async ledgerPage(walletId: string, { beforeVersion, limit }: LedgerPageQuery): Promise<WalletLedgerEntry[]> {
+    const rows = await this.orm.em.fork().execute(
+      `select id, wallet_id, transaction_id, direction, amount, currency, balance_before, balance_after,
+              wallet_version, ${isoUtc("created_at")}
+         from wallet_ledger_entries
+        where wallet_id = ? and (?::int is null or wallet_version < ?::int)
+        order by wallet_version desc
+        limit ?`,
+      [walletId, beforeVersion ?? null, beforeVersion ?? null, limit],
+    );
+    return rows.map((row) => {
+      const currency = row.currency as string;
+      return WalletLedgerEntry.rehydrate({
+        id: row.id as string,
+        walletId: row.wallet_id as string,
+        transactionId: row.transaction_id as string,
+        direction: row.direction as LedgerDirection,
+        money: Money.fromDb(row.amount as string, currency),
+        balanceBefore: Money.fromDb(row.balance_before as string, currency),
+        balanceAfter: Money.fromDb(row.balance_after as string, currency),
+        walletVersion: row.wallet_version as number,
+        createdAt: new Date(row.created_at as string),
+      });
     });
   }
 
