@@ -28,9 +28,16 @@ export class ShutdownCoordinator implements BeforeApplicationShutdown {
   async beforeApplicationShutdown(): Promise<void> {
     this.state.draining = true;
     const stopped = Promise.all([this.consumer.stop(), this.outbox.stop(), this.references.stop()]).then(() => true);
-    const timedOut = new Promise<false>((resolve) => setTimeout(() => resolve(false), this.config.SHUTDOWN_DRAIN_MS));
-    if (!(await Promise.race([stopped, timedOut]))) {
-      this.logger.error(`in-flight work did not finish within ${this.config.SHUTDOWN_DRAIN_MS}ms`);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), this.config.SHUTDOWN_DRAIN_MS);
+    });
+    try {
+      if (!(await Promise.race([stopped, timedOut]))) {
+        this.logger.error(`in-flight work did not finish within ${this.config.SHUTDOWN_DRAIN_MS}ms`);
+      }
+    } finally {
+      clearTimeout(timer);
     }
   }
 }

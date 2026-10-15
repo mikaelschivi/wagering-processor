@@ -61,6 +61,29 @@ describe("ShutdownCoordinator", () => {
     expect(done).toBe(true);
   });
 
+  test("leaves no timer behind, so the process can exit as soon as the work is done", async () => {
+    const pending = new Set<unknown>();
+    const realSet = globalThis.setTimeout;
+    const realClear = globalThis.clearTimeout;
+    globalThis.setTimeout = ((handler: () => void, ms?: number) => {
+      const timer = realSet(handler, ms);
+      pending.add(timer);
+      return timer;
+    }) as typeof setTimeout;
+    globalThis.clearTimeout = ((timer: Parameters<typeof clearTimeout>[0]) => {
+      pending.delete(timer);
+      realClear(timer);
+    }) as typeof clearTimeout;
+    try {
+      const { consumer, outbox, references } = runners(async () => {}, async () => {});
+      await new ShutdownCoordinator(config(20_000), new LifecycleState(), consumer, outbox, references).beforeApplicationShutdown();
+      expect(pending.size).toBe(0);
+    } finally {
+      globalThis.setTimeout = realSet;
+      globalThis.clearTimeout = realClear;
+    }
+  });
+
   test("gives up after the drain time when in-flight work does not finish", async () => {
     const { consumer, outbox, references } = runners(
       () => new Promise(() => {}),
