@@ -2,8 +2,12 @@ import { Migrator } from "@mikro-orm/migrations";
 import { MikroORM } from "@mikro-orm/postgresql";
 import type { AppConfig } from "../../config";
 import { Migration0001Wallets } from "./migrations/Migration0001Wallets";
+import { Migration0002Messaging } from "./migrations/Migration0002Messaging";
 
-export const MIGRATIONS = [{ name: "Migration0001Wallets", class: Migration0001Wallets }];
+export const MIGRATIONS = [
+  { name: "Migration0001Wallets", class: Migration0001Wallets },
+  { name: "Migration0002Messaging", class: Migration0002Messaging },
+];
 
 function connection(config: AppConfig, user: string, password: string, dbName: string) {
   return {

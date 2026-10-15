@@ -132,8 +132,8 @@ describe("migrations", () => {
       };
 
       await db.owner.migrator.up();
-      expect(await tables()).toEqual(["mikro_orm_migrations", "wager_transactions", "wallet_ledger_entries", "wallets"]);
-      expect(await objects()).toBe(8);
+      expect(await tables()).toEqual(["inbox_messages", "mikro_orm_migrations", "outbox_messages", "wager_transactions", "wallet_ledger_entries", "wallets"]);
+      expect(await objects()).toBe(10);
 
       await db.owner.migrator.down({ to: 0 });
       expect(await tables()).toEqual(["mikro_orm_migrations"]);
@@ -141,7 +141,7 @@ describe("migrations", () => {
 
       await db.owner.migrator.up();
       expect(await tables()).toContain("wallets");
-      expect(await objects()).toBe(8);
+      expect(await objects()).toBe(10);
     } finally {
       await db.drop();
     }
