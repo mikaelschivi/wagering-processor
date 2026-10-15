@@ -9,13 +9,37 @@ import {
   type WagerStoreTx,
 } from "../../src/application/ports";
 import {
-  type WagerTransaction,
+  WagerTransaction,
   WagerTransactionKind,
   WagerTransactionStatus,
 } from "../../src/domain/wager-transaction";
 import { Wallet, type WalletLedgerEntry } from "../../src/domain/wallet";
 
 const pendingInboxes = new WeakMap<WagerChange[], Map<string, string>>();
+const pendingOps = new WeakMap<WagerChange[], (() => void)[]>();
+
+const cloneTransaction = (tx: WagerTransaction) =>
+  WagerTransaction.rehydrate({
+    id: tx.id,
+    providerId: tx.providerId,
+    externalTransactionId: tx.externalTransactionId,
+    idempotencyKey: tx.idempotencyKey,
+    payloadHash: tx.payloadHash,
+    walletId: tx.walletId,
+    playerId: tx.playerId,
+    roundId: tx.roundId,
+    gameId: tx.gameId,
+    kind: tx.kind,
+    money: tx.money,
+    ...(tx.referenceExternalTransactionId && { referenceExternalTransactionId: tx.referenceExternalTransactionId }),
+    correlationId: tx.correlationId,
+    createdAt: tx.createdAt,
+    status: tx.status,
+    ...(tx.referenceTransactionId && { referenceTransactionId: tx.referenceTransactionId }),
+    ...(tx.failureCode && { failureCode: tx.failureCode }),
+    ...(tx.result && { result: tx.result }),
+    ...(tx.processedAt && { processedAt: tx.processedAt }),
+  });
 
 const copyWallet = (wallet: Wallet) =>
   Wallet.rehydrate({
@@ -60,6 +84,9 @@ export class InMemoryWagerStore extends WagerStore {
   }
 
   readonly inbox = new Map<string, string>();
+  readonly references = new Map<string, { attempts: number; failures: number; lastDelayMs?: number }>();
+  readonly expired = new Set<string>();
+  claims = 0;
   private readonly byKey = new Map<string, string>();
   private readonly byExternal = new Map<string, string>();
   private readonly tails = new Map<string, Promise<void>>();
@@ -76,6 +103,14 @@ export class InMemoryWagerStore extends WagerStore {
     const failure = this.failLookups.shift();
     if (failure) throw failure;
     return this.lookup(providerId, key);
+  }
+
+  async claimDueReferences(limit: number) {
+    this.claims++;
+    return [...this.transactions.values()]
+      .filter((tx) => tx.status === WagerTransactionStatus.PendingReference)
+      .slice(0, limit)
+      .map((tx) => ({ transactionId: tx.id, walletId: tx.walletId }));
   }
 
   async findById(id: string) {
@@ -119,7 +154,50 @@ export class InMemoryWagerStore extends WagerStore {
   private transactionFor(walletId: string, pending: WagerChange[]): WagerStoreTx {
     const pendingInbox = new Map<string, string>();
     pendingInboxes.set(pending, pendingInbox);
+    const ops: (() => void)[] = [];
+    pendingOps.set(pending, ops);
+    const meta = (id: string) => {
+      const existing = this.references.get(id) ?? { attempts: 0, failures: 0 };
+      this.references.set(id, existing);
+      return existing;
+    };
     return {
+      lockPending: async (transactionId: string) => {
+        const stored = this.transactions.get(transactionId);
+        if (!stored || stored.status !== WagerTransactionStatus.PendingReference) return undefined;
+        return {
+          transaction: cloneTransaction(stored),
+          expired: this.expired.has(transactionId),
+          attempts: meta(transactionId).attempts,
+        };
+      },
+      saveResolved: async (change: WagerChange) => {
+        if (this.failNextSave) {
+          const error = this.failNextSave;
+          this.failNextSave = undefined;
+          throw error;
+        }
+        ops.push(() => {
+          this.transactions.set(change.transaction.id, change.transaction);
+          if (change.events) this.events.push(...change.events);
+          if (change.wallet) this.wallets.set(change.wallet.id, copyWallet(change.wallet));
+          if (change.entry) this.entries.push(change.entry);
+        });
+      },
+      reschedule: async (transactionId: string, delayMs: number) => {
+        ops.push(() => {
+          const record = meta(transactionId);
+          record.attempts++;
+          record.lastDelayMs = delayMs;
+        });
+      },
+      recordFailure: async (transactionId: string) => {
+        const next = meta(transactionId).failures + 1;
+        ops.push(() => {
+          meta(transactionId).failures = next;
+        });
+        return next;
+      },
       recordInbox: async (entry: InboxEntry, _at: Date): Promise<InboxRecord> => {
         const key = `${entry.consumerName}:${entry.messageId}`;
         const existing = this.inbox.get(key) ?? pendingInbox.get(key);
@@ -165,6 +243,7 @@ export class InMemoryWagerStore extends WagerStore {
       if (this.byExternal.has(external)) throw new UniqueRaceError("ux_tx_provider_external");
     }
     for (const [key, hash] of pendingInboxes.get(pending) ?? []) this.inbox.set(key, hash);
+    for (const op of pendingOps.get(pending) ?? []) op();
     for (const { transaction, wallet, entry, events } of pending) {
       if (events) this.events.push(...events);
       this.transactions.set(transaction.id, transaction);

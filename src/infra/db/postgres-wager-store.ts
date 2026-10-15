@@ -4,6 +4,8 @@ import {
   type InboxEntry,
   type InboxRecord,
   InvariantDbError,
+  type LockedPending,
+  type PendingReferenceItem,
   type LockOptions,
   TransientDbError,
   UniqueRaceError,
@@ -17,7 +19,7 @@ import { DomainError, type FailureCode } from "../../domain/errors";
 import { Money } from "../../domain/money";
 import {
   WagerTransaction,
-  type WagerTransactionKind,
+  WagerTransactionKind,
   WagerTransactionStatus,
 } from "../../domain/wager-transaction";
 import { Wallet, type WalletLedgerEntry } from "../../domain/wallet";
@@ -187,17 +189,71 @@ export async function writeEvents(exec: Exec, events: DomainEvent[] = []): Promi
   }
 }
 
-async function writeChange(exec: Exec, { transaction, wallet, entry, events }: WagerChange): Promise<void> {
-  await insert(exec, "wager_transactions", transactionRow(transaction));
-  if (entry && wallet) {
-    await insert(exec, "wallet_ledger_entries", ledgerRow(entry));
-    const updated = await exec(
-      "update wallets set balance = ?, version = ?, updated_at = ? where id = ? and version = ? returning id",
-      [wallet.balance.toString(), wallet.version, wallet.updatedAt, wallet.id, wallet.version - 1],
-    );
-    if (updated.length !== 1) throw new InvariantDbError("CONCURRENT_WALLET_UPDATE");
-  }
-  await writeEvents(exec, events);
+async function writeMovement(exec: Exec, { wallet, entry }: WagerChange): Promise<void> {
+  if (!entry || !wallet) return;
+  await insert(exec, "wallet_ledger_entries", ledgerRow(entry));
+  const updated = await exec(
+    "update wallets set balance = ?, version = ?, updated_at = ? where id = ? and version = ? returning id",
+    [wallet.balance.toString(), wallet.version, wallet.updatedAt, wallet.id, wallet.version - 1],
+  );
+  if (updated.length !== 1) throw new InvariantDbError("CONCURRENT_WALLET_UPDATE");
+}
+
+const NUDGING_KINDS = [WagerTransactionKind.Bet, WagerTransactionKind.Win, WagerTransactionKind.Refund];
+const SETTLED = [WagerTransactionStatus.Processed, WagerTransactionStatus.Rejected];
+
+async function nudgeDependents(exec: Exec, transaction: WagerTransaction): Promise<void> {
+  if (!NUDGING_KINDS.includes(transaction.kind) || !SETTLED.includes(transaction.status)) return;
+  await exec(
+    `update wager_transactions set next_reference_attempt_at = now()
+      where status = 'PENDING_REFERENCE' and wallet_id = ? and provider_id = ? and reference_external_transaction_id = ?`,
+    [transaction.walletId, transaction.providerId, transaction.externalTransactionId],
+  );
+}
+
+async function writeChange(exec: Exec, change: WagerChange): Promise<void> {
+  await insert(exec, "wager_transactions", transactionRow(change.transaction));
+  await writeMovement(exec, change);
+  await writeEvents(exec, change.events);
+  await nudgeDependents(exec, change.transaction);
+}
+
+async function resolvePending(exec: Exec, change: WagerChange, at: Date): Promise<void> {
+  const { transaction } = change;
+  await exec(
+    `update wager_transactions
+        set status = ?, failure_code = ?, reference_transaction_id = ?,
+            result_balance = ?, result_currency = ?, result_wallet_version = ?,
+            processed_at = ?, next_reference_attempt_at = null, updated_at = ?
+      where id = ?`,
+    [
+      transaction.status,
+      transaction.failureCode ?? null,
+      transaction.referenceTransactionId ?? null,
+      transaction.result?.balance.toString() ?? null,
+      transaction.result?.balance.currency ?? null,
+      transaction.result?.walletVersion ?? null,
+      transaction.processedAt ?? null,
+      at,
+      transaction.id,
+    ],
+  );
+  await writeMovement(exec, change);
+  await writeEvents(exec, change.events);
+  await nudgeDependents(exec, transaction);
+}
+
+async function lockPending(exec: Exec, transactionId: string, ttlMs: number): Promise<LockedPending | undefined> {
+  const [row] = await exec(
+    `select ${TRANSACTION_COLUMNS}, reference_attempts,
+            created_at <= now() - make_interval(secs => ?) as expired
+       from wager_transactions
+      where id = ? and status = 'PENDING_REFERENCE'
+        for update`,
+    [ttlMs / 1000, transactionId],
+  );
+  if (!row) return undefined;
+  return { transaction: toTransaction(row), expired: row.expired as boolean, attempts: row.reference_attempts as number };
 }
 
 async function recordInbox(exec: Exec, entry: InboxEntry, at: Date): Promise<InboxRecord> {
@@ -228,6 +284,28 @@ export class PostgresWagerStore extends WagerStore {
     return this.read(() => findOne(this.exec, "idempotency_key", providerId, key));
   }
 
+  async claimDueReferences(limit: number, leaseS: number): Promise<PendingReferenceItem[]> {
+    try {
+      const rows = await inTransaction(this.orm, this.config, (exec) =>
+        exec(
+          `update wager_transactions
+              set next_reference_attempt_at = now() + make_interval(secs => ?)
+            where id in (
+              select id from wager_transactions
+               where status = 'PENDING_REFERENCE' and next_reference_attempt_at <= now()
+               order by next_reference_attempt_at
+               limit ?
+                 for update skip locked)
+            returning id, wallet_id`,
+          [leaseS, limit],
+        ),
+      );
+      return rows.map((row) => ({ transactionId: row.id as string, walletId: row.wallet_id as string }));
+    } catch (error) {
+      throw translateDbError(error, false);
+    }
+  }
+
   async findById(id: string): Promise<WagerTransaction | undefined> {
     return this.read(() => findInternalId(this.exec, id));
   }
@@ -253,6 +331,26 @@ export class PostgresWagerStore extends WagerStore {
         async (exec) => {
           const [walletRow] = await exec(`select ${WALLET_COLUMNS} from wallets where id = ? for update`, [walletId]);
           const result = await work({
+            lockPending: (transactionId, ttlMs) => lockPending(exec, transactionId, ttlMs),
+            saveResolved: (change, at) => resolvePending(exec, change, at),
+            reschedule: async (transactionId, delayMs) => {
+              await exec(
+                `update wager_transactions
+                    set reference_attempts = reference_attempts + 1,
+                        next_reference_attempt_at = now() + make_interval(secs => ?),
+                        updated_at = now()
+                  where id = ? and status = 'PENDING_REFERENCE'`,
+                [delayMs / 1000, transactionId],
+              );
+            },
+            recordFailure: async (transactionId) => {
+              const [row] = await exec(
+                `update wager_transactions set consecutive_failures = consecutive_failures + 1, updated_at = now()
+                  where id = ? and status = 'PENDING_REFERENCE' returning consecutive_failures`,
+                [transactionId],
+              );
+              return (row?.consecutive_failures as number | undefined) ?? 0;
+            },
             recordInbox: (entry, at) => recordInbox(exec, entry, at),
             loadWallet: async () => walletRow && toWallet(walletRow),
             findByIdempotencyKey: (providerId, key) => findOne(exec, "idempotency_key", providerId, key),

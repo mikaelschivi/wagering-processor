@@ -97,7 +97,22 @@ export interface InboxEntry {
 
 export type InboxRecord = { status: "recorded" } | { status: "duplicate"; messageHash: string };
 
+export interface PendingReferenceItem {
+  transactionId: string;
+  walletId: string;
+}
+
+export interface LockedPending {
+  transaction: WagerTransaction;
+  expired: boolean;
+  attempts: number;
+}
+
 export interface WagerStoreTx {
+  lockPending(transactionId: string, ttlMs: number): Promise<LockedPending | undefined>;
+  saveResolved(change: WagerChange, at: Date): Promise<void>;
+  reschedule(transactionId: string, delayMs: number): Promise<void>;
+  recordFailure(transactionId: string): Promise<number>;
   recordInbox(entry: InboxEntry, at: Date): Promise<InboxRecord>;
   loadWallet(): Promise<Wallet | undefined>;
   findByIdempotencyKey(providerId: string, key: string): Promise<WagerTransaction | undefined>;
@@ -113,6 +128,7 @@ export interface LockOptions {
 export abstract class WagerStore {
   abstract findByIdempotencyKey(providerId: string, key: string): Promise<WagerTransaction | undefined>;
   abstract findById(id: string): Promise<WagerTransaction | undefined>;
+  abstract claimDueReferences(limit: number, leaseS: number): Promise<PendingReferenceItem[]>;
   abstract findByExternalId(providerId: string, externalTransactionId: string): Promise<WagerTransaction | undefined>;
   abstract runLocked<T>(walletId: string, options: LockOptions, work: (tx: WagerStoreTx) => Promise<T>): Promise<T>;
 }

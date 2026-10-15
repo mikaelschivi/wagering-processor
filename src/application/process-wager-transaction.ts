@@ -59,6 +59,17 @@ export interface RetryPolicy {
 const isRetryable = (error: unknown) =>
   error instanceof TransientDbError || error instanceof UniqueRaceError || error instanceof UnknownCommitOutcomeError;
 
+export function applyMovement(
+  wallet: Wallet,
+  transaction: WagerTransaction,
+  direction: LedgerDirection,
+  entryId: string,
+  at: Date,
+) {
+  const movement = { money: transaction.money, transactionId: transaction.id, entryId, at };
+  return direction === LedgerDirection.Debit ? wallet.debit(movement) : wallet.credit(movement);
+}
+
 export function assertCanActAs(actor: Principal, providerId: string): void {
   if (actor.kind === "provider" && actor.providerId !== providerId) {
     throw new ForbiddenProviderError("the caller cannot act for this provider");
@@ -225,7 +236,6 @@ export class ProcessWagerTransaction {
   }
 
   private move(wallet: Wallet, transaction: WagerTransaction, direction: LedgerDirection, at: Date) {
-    const movement = { money: transaction.money, transactionId: transaction.id, entryId: this.ids.next(), at };
-    return direction === LedgerDirection.Debit ? wallet.debit(movement) : wallet.credit(movement);
+    return applyMovement(wallet, transaction, direction, this.ids.next(), at);
   }
 }
