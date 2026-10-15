@@ -10,6 +10,16 @@ export abstract class IdGenerator {
   abstract next(): string;
 }
 
+export type Principal =
+  | { kind: "provider"; providerId: string }
+  | { kind: "admin" }
+  | { kind: "trusted-internal" }
+  | { kind: "anonymous-dev" };
+
+export abstract class ProviderIdentityPort {
+  abstract resolve(request: { header(name: string): string | undefined }): Principal;
+}
+
 export abstract class WalletStore {
   abstract create(wallet: Wallet, openingEntry?: WalletLedgerEntry): Promise<void>;
   abstract findById(id: string): Promise<Wallet | undefined>;

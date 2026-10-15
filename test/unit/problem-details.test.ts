@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { Logger, ServiceUnavailableException, type ArgumentsHost } from "@nestjs/common";
 import {
   ExternalTransactionIdConflictError,
+  ForbiddenProviderError,
   IdempotencyKeyConflictError,
   InsufficientFundsError,
   InvalidWagerTransactionError,
@@ -69,6 +70,7 @@ describe("ProblemDetailsFilter", () => {
   test.each([
     [new IdempotencyKeyConflictError("x"), 409, "IDEMPOTENCY_KEY_CONFLICT", false],
     [new ExternalTransactionIdConflictError("x"), 409, "EXTERNAL_TRANSACTION_ID_CONFLICT", false],
+    [new ForbiddenProviderError("x"), 403, "FORBIDDEN_PROVIDER", false],
     [new WalletNotFoundError("x"), 422, "WALLET_NOT_FOUND", false],
     [new MissingIdempotencyKeyError(), 400, "MISSING_IDEMPOTENCY_KEY", false],
     [new InvalidWagerTransactionError("x"), 400, "VALIDATION_ERROR", false],

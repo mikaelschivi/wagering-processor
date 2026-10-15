@@ -6,12 +6,14 @@ import {
 } from "../../src/application/process-wager-transaction";
 import {
   InvariantDbError,
+  type Principal,
   TransientDbError,
   UnknownCommitOutcomeError,
 } from "../../src/application/ports";
 import {
   ExternalTransactionIdConflictError,
   FailureCode,
+  ForbiddenProviderError,
   IdempotencyKeyConflictError,
   TransientInfrastructureError,
   WalletNotFoundError,
@@ -68,7 +70,7 @@ const request = (
 });
 
 const submit = (useCase: ProcessWagerTransaction, req: WagerRequest, key = `prov:${req.externalTransactionId}`) =>
-  useCase.execute({ request: req, idempotencyKey: key, correlationId: "corr-1" });
+  useCase.execute({ request: req, actor: { kind: "anonymous-dev" }, idempotencyKey: key, correlationId: "corr-1" });
 
 const bet = (ext: string, amount = "10.00", overrides: Partial<WagerRequest> = {}) =>
   request(ext, Kind.Bet, amount, overrides);
@@ -619,5 +621,29 @@ describe("retry policy validation", () => {
 
   test("accepts the defaults", () => {
     expect(() => build({})).not.toThrow();
+  });
+});
+
+describe("authorization", () => {
+  const execute = (useCase: ProcessWagerTransaction, actor: Principal) =>
+    useCase.execute({ request: bet("a1"), actor, idempotencyKey: "k", correlationId: "c" });
+
+  test("a provider cannot act for another provider and nothing is touched", async () => {
+    const { useCase, store } = setup();
+    await expect(execute(useCase, { kind: "provider", providerId: "other" })).rejects.toBeInstanceOf(
+      ForbiddenProviderError,
+    );
+    expect(store.attempts).toBe(0);
+    expect(store.balanceOf("w1")).toBe("100.00");
+  });
+
+  test.each<Principal>([
+    { kind: "provider", providerId: "prov" },
+    { kind: "admin" },
+    { kind: "trusted-internal" },
+    { kind: "anonymous-dev" },
+  ])("%p may submit", async (actor) => {
+    const { useCase } = setup();
+    expect((await execute(useCase, actor)).status).toBe(Status.Processed);
   });
 });

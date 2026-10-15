@@ -73,6 +73,10 @@ export class WalletNotFoundError extends DomainError {
   readonly code = "WALLET_NOT_FOUND";
 }
 
+export class ForbiddenProviderError extends DomainError {
+  readonly code = "FORBIDDEN_PROVIDER";
+}
+
 export class TransientInfrastructureError extends DomainError {
   readonly code = "TRANSIENT_FAILURE";
 }

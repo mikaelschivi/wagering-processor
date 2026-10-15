@@ -1,5 +1,7 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from "@nestjs/common";
 
+import { Public } from "./auth";
+
 export const READINESS_CHECKS = Symbol("READINESS_CHECKS");
 
 export interface ReadinessCheck {
@@ -36,6 +38,7 @@ export async function runChecks(checks: ReadinessCheck[]): Promise<ReadinessRepo
 }
 
 @Controller("health")
+@Public()
 export class HealthController {
   constructor(@Inject(READINESS_CHECKS) private readonly checks: ReadinessCheck[]) {}
 

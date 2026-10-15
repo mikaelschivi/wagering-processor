@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import {
   ExternalTransactionIdConflictError,
+  ForbiddenProviderError,
   IdempotencyKeyConflictError,
   InvalidMoneyError,
   InvalidWagerTransactionError,
@@ -86,6 +87,9 @@ function toProblem(error: unknown): Problem {
   }
   if (error instanceof IdempotencyKeyConflictError || error instanceof ExternalTransactionIdConflictError) {
     return { status: 409, code: error.code, title: "Conflict", detail: error.message, retryable: false };
+  }
+  if (error instanceof ForbiddenProviderError) {
+    return { status: 403, code: error.code, title: "Forbidden", detail: error.message, retryable: false };
   }
   if (error instanceof WalletNotFoundError) {
     return { status: 422, code: error.code, title: "Wallet not found", detail: error.message, retryable: false };

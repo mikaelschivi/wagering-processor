@@ -1,12 +1,13 @@
 import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Res } from "@nestjs/common";
 import { CreateWallet } from "../../application/create-wallet";
 import { ProcessWagerTransaction, type WagerResult } from "../../application/process-wager-transaction";
-import { WagerStore, WalletStore } from "../../application/ports";
+import { type Principal, WagerStore, WalletStore } from "../../application/ports";
 import { APP_CONFIG, type AppConfig } from "../../config";
 import { NotFoundError } from "../../domain/errors";
 import { Money } from "../../domain/money";
 import { WagerTransactionStatus, type WagerTransaction } from "../../domain/wager-transaction";
 import type { Wallet } from "../../domain/wallet";
+import { AdminRoute, CurrentPrincipal, ProviderRoute } from "./auth";
 import {
   correlationIdFrom,
   createWalletBody,
@@ -36,6 +37,7 @@ export class WalletsController {
   ) {}
 
   @Post()
+  @AdminRoute()
   @HttpCode(201)
   async create(@Body() body: unknown) {
     const command = validate(createWalletBody(this.config.SUPPORTED_CURRENCIES), body);
@@ -43,6 +45,7 @@ export class WalletsController {
   }
 
   @Get(":walletId")
+  @ProviderRoute()
   async get(@Param() params: unknown) {
     const { walletId } = validate(walletParams, params);
     const wallet = await this.store.findById(walletId);
@@ -85,6 +88,7 @@ function transactionView(tx: WagerTransaction) {
 }
 
 @Controller()
+@ProviderRoute()
 export class WagerTransactionsController {
   constructor(
     private readonly processWager: ProcessWagerTransaction,
@@ -96,6 +100,7 @@ export class WagerTransactionsController {
     @Body() body: unknown,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
     @Headers("x-correlation-id") correlationHeader: string | undefined,
+    @CurrentPrincipal() actor: Principal,
     @Res({ passthrough: true }) response: ResponseHeaders,
   ): Promise<WagerResult> {
     const key = requireIdempotencyKey(idempotencyKey);
@@ -103,6 +108,7 @@ export class WagerTransactionsController {
     const correlationId = correlationIdFrom(correlationHeader);
     const result = await this.processWager.execute({
       request: { ...fields, money: Money.from(money) },
+      actor,
       idempotencyKey: key,
       correlationId,
     });
@@ -112,19 +118,23 @@ export class WagerTransactionsController {
   }
 
   @Get("wagering/transactions/:transactionId")
-  async get(@Param() params: unknown) {
+  async get(@Param() params: unknown, @CurrentPrincipal() actor: Principal) {
     const { transactionId } = validate(transactionParams, params);
-    return transactionView(await this.found(await this.store.findById(transactionId)));
+    return transactionView(this.visibleTo(actor, await this.store.findById(transactionId)));
   }
 
   @Get("providers/:providerId/wagering/transactions/:externalTransactionId")
-  async getByExternalId(@Param() params: unknown) {
+  async getByExternalId(@Param() params: unknown, @CurrentPrincipal() actor: Principal) {
     const { providerId, externalTransactionId } = validate(providerTransactionParams, params);
-    return transactionView(await this.found(await this.store.findByExternalId(providerId, externalTransactionId)));
+    return transactionView(
+      this.visibleTo(actor, await this.store.findByExternalId(providerId, externalTransactionId)),
+    );
   }
 
-  private async found(tx: WagerTransaction | undefined): Promise<WagerTransaction> {
-    if (!tx) throw new NotFoundError("transaction not found");
+  private visibleTo(actor: Principal, tx: WagerTransaction | undefined): WagerTransaction {
+    if (!tx || (actor.kind === "provider" && actor.providerId !== tx.providerId)) {
+      throw new NotFoundError("transaction not found");
+    }
     return tx;
   }
 }

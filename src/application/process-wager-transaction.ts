@@ -1,6 +1,7 @@
 import {
   ExternalTransactionIdConflictError,
   type FailureCode,
+  ForbiddenProviderError,
   IdempotencyKeyConflictError,
   TransientInfrastructureError,
   WalletNotFoundError,
@@ -18,6 +19,7 @@ import { LedgerDirection, type Wallet } from "../domain/wallet";
 import {
   type Clock,
   type IdGenerator,
+  type Principal,
   TransientDbError,
   UniqueRaceError,
   UnknownCommitOutcomeError,
@@ -48,8 +50,15 @@ export interface RetryPolicy {
 const isRetryable = (error: unknown) =>
   error instanceof TransientDbError || error instanceof UniqueRaceError || error instanceof UnknownCommitOutcomeError;
 
+export function assertCanActAs(actor: Principal, providerId: string): void {
+  if (actor.kind === "provider" && actor.providerId !== providerId) {
+    throw new ForbiddenProviderError("the caller cannot act for this provider");
+  }
+}
+
 export interface ProcessWagerCommand {
   request: WagerRequest;
+  actor: Principal;
   idempotencyKey: string;
   correlationId: string;
 }
@@ -86,6 +95,7 @@ export class ProcessWagerTransaction {
 
   async execute(command: ProcessWagerCommand): Promise<WagerResult> {
     const { request } = command;
+    assertCanActAs(command.actor, request.providerId);
     const payloadHash = hashPayload({ ...request, money: request.money.toJSON() });
     const startedAt = this.clock.now().getTime();
 

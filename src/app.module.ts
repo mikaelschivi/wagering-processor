@@ -1,14 +1,15 @@
 import { Module, type DynamicModule } from "@nestjs/common";
-import { APP_FILTER } from "@nestjs/core";
+import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import type { SQSClient } from "@aws-sdk/client-sqs";
 import { MikroORM } from "@mikro-orm/postgresql";
 import { CreateWallet } from "./application/create-wallet";
-import { Clock, IdGenerator, WagerStore, WalletStore } from "./application/ports";
+import { Clock, IdGenerator, ProviderIdentityPort, WagerStore, WalletStore } from "./application/ports";
 import { ProcessWagerTransaction } from "./application/process-wager-transaction";
 import { APP_CONFIG, type AppConfig } from "./config";
 import { createOrm } from "./infra/db/mikro-orm.config";
 import { PostgresWagerStore } from "./infra/db/postgres-wager-store";
 import { PostgresWalletStore } from "./infra/db/postgres-wallet-store";
+import { AnonymousDevIdentity, AuthGuard } from "./infra/http/auth";
 import { WagerTransactionsController, WalletsController } from "./infra/http/controllers";
 import { HealthController, READINESS_CHECKS, type ReadinessCheck } from "./infra/http/health.controller";
 import { ProblemDetailsFilter } from "./infra/http/problem-details.filter";
@@ -18,13 +19,15 @@ import { SystemClock, UuidV7Generator } from "./infra/system";
 
 @Module({})
 export class AppModule {
-  static forRoot(config: AppConfig): DynamicModule {
+  static forRoot(config: AppConfig, identity: ProviderIdentityPort = new AnonymousDevIdentity()): DynamicModule {
     return {
       module: AppModule,
       controllers: [HealthController, WalletsController, WagerTransactionsController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         { provide: APP_FILTER, useClass: ProblemDetailsFilter },
+        { provide: ProviderIdentityPort, useValue: identity },
+        { provide: APP_GUARD, useClass: AuthGuard },
         { provide: Clock, useClass: SystemClock },
         { provide: IdGenerator, useClass: UuidV7Generator },
         {

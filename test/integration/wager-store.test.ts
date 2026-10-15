@@ -63,6 +63,7 @@ const request = (wallet: Wallet, overrides: Partial<WagerRequest> = {}): WagerRe
 
 const command = (req: WagerRequest, idempotencyKey: string = crypto.randomUUID()) => ({
   request: req,
+  actor: { kind: "anonymous-dev" } as const,
   idempotencyKey,
   correlationId: crypto.randomUUID(),
 });
