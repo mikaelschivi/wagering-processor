@@ -1,5 +1,7 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from "@nestjs/common";
 
+import { InMemoryMetrics } from "../../observability";
+import { MetricsReporter } from "../metrics-reporter";
 import { LifecycleState } from "../shutdown";
 import { Public } from "./auth";
 
@@ -57,5 +59,20 @@ export class HealthController {
     const report = await runChecks(this.checks);
     if (!report.ok) throw new ServiceUnavailableException({ status: "unavailable", checks: report.checks });
     return { status: "ok", checks: report.checks };
+  }
+}
+
+@Controller("metrics")
+@Public()
+export class MetricsController {
+  constructor(
+    private readonly metrics: InMemoryMetrics,
+    private readonly reporter: MetricsReporter,
+  ) {}
+
+  @Get()
+  async snapshot() {
+    await this.reporter.sample();
+    return this.metrics.snapshot();
   }
 }

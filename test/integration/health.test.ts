@@ -45,3 +45,9 @@ test("unknown route returns 404", async () => {
   const response = await fetch(`${baseUrl}/nope`);
   expect(response.status).toBe(404);
 });
+
+test("GET /metrics returns the metrics snapshot without auth", async () => {
+  const response = await fetch(`${baseUrl}/metrics`);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ counters: expect.any(Object), gauges: expect.any(Object), histograms: expect.any(Object) });
+});

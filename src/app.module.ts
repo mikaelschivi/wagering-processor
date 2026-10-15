@@ -16,7 +16,7 @@ import { PostgresWagerStore } from "./infra/db/postgres-wager-store";
 import { PostgresWalletStore } from "./infra/db/postgres-wallet-store";
 import { AnonymousDevIdentity, AuthGuard } from "./infra/http/auth";
 import { WagerTransactionsController, WalletsController } from "./infra/http/controllers";
-import { HealthController, READINESS_CHECKS, type ReadinessCheck } from "./infra/http/health.controller";
+import { HealthController, MetricsController, READINESS_CHECKS, type ReadinessCheck } from "./infra/http/health.controller";
 import { ProblemDetailsFilter } from "./infra/http/problem-details.filter";
 import { MetricsReporter } from "./infra/metrics-reporter";
 import { OutboxRunner } from "./infra/outbox-runner";
@@ -36,7 +36,7 @@ export class AppModule implements NestModule {
   static forRoot(config: AppConfig, identity: ProviderIdentityPort = new AnonymousDevIdentity()): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController, WalletsController, WagerTransactionsController],
+      controllers: [HealthController, MetricsController, WalletsController, WagerTransactionsController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         { provide: APP_FILTER, useClass: ProblemDetailsFilter },

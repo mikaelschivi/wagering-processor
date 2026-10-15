@@ -53,9 +53,13 @@ export class MetricsReporter implements OnApplicationBootstrap, BeforeApplicatio
   }
 
   private async dlqDepth(): Promise<number> {
-    this.dlqUrl ??= (await this.sqs.send(new GetQueueUrlCommand({ QueueName: this.config.WAGER_DLQ_NAME }))).QueueUrl;
+    const abortSignal = AbortSignal.timeout(this.config.READY_SQS_TIMEOUT_MS);
+    this.dlqUrl ??= (
+      await this.sqs.send(new GetQueueUrlCommand({ QueueName: this.config.WAGER_DLQ_NAME }), { abortSignal })
+    ).QueueUrl;
     const { Attributes } = await this.sqs.send(
       new GetQueueAttributesCommand({ QueueUrl: this.dlqUrl, AttributeNames: ["ApproximateNumberOfMessages"] }),
+      { abortSignal },
     );
     return Number(Attributes?.ApproximateNumberOfMessages ?? 0);
   }

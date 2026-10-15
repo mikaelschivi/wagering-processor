@@ -103,7 +103,7 @@ export function correlationMiddleware() {
     const startedAt = performance.now();
     response.on("finish", () => {
       const route = request.route?.path ?? "unmatched";
-      if (route.startsWith("/health")) return;
+      if (route.startsWith("/health") || route === "/metrics") return;
       runWithContext(fields, () =>
         logger.log({
           message: "request completed",

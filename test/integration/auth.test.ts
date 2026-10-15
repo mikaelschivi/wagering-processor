@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { type Principal, ProviderIdentityPort } from "../../src/application/ports";
 import { routeAccess } from "../../src/infra/http/auth";
-import { HealthController } from "../../src/infra/http/health.controller";
+import { HealthController, MetricsController } from "../../src/infra/http/health.controller";
 import { WagerTransactionsController, WalletsController } from "../../src/infra/http/controllers";
 import { type BootedApp, bootApp } from "../helpers/app";
 import { createTestDatabase, type TestDatabase } from "../helpers/db";
@@ -58,7 +58,7 @@ const submit = (principal: string, body: unknown, providerId: string) =>
 
 describe("authorization", () => {
   test("every route handler carries an access tag", () => {
-    for (const controller of [HealthController, WalletsController, WagerTransactionsController]) {
+    for (const controller of [HealthController, MetricsController, WalletsController, WagerTransactionsController]) {
       const handlers = Object.getOwnPropertyNames(controller.prototype).filter((name) => name !== "constructor");
       for (const name of handlers) {
         const handler = (controller.prototype as unknown as Record<string, object>)[name]!;
@@ -68,8 +68,9 @@ describe("authorization", () => {
     }
   });
 
-  test("health stays open without any identity", async () => {
+  test("health and metrics stay open without any identity", async () => {
     expect((await fetch(`${baseUrl}/health/live`)).status).toBe(200);
+    expect((await fetch(`${baseUrl}/metrics`)).status).toBe(200);
   });
 
   test("a provider cannot create wallets, an admin can", async () => {

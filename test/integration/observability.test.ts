@@ -133,8 +133,9 @@ describe("access log", () => {
     expect(accessLines().at(-1)).toMatchObject({ status: 400, method: "GET" });
   });
 
-  test("health checks are not logged", async () => {
+  test("health checks and metrics visits are not logged", async () => {
     await fetch(`${baseUrl}/health/live`);
+    await fetch(`${baseUrl}/metrics`);
     expect(accessLines()).toEqual([]);
   });
 });
