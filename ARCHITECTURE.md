@@ -162,7 +162,7 @@ Os testes terminam conferindo que `wallet.balance` é igual ao saldo reconstruí
 ### 3.7 Observabilidade
 
 - **Logs** em JSON com `correlationId`, `messageId`, `transactionId`, `walletId` e `providerId`. O logger descarta `amount`, `balance`, `money`, `payload` e `authorization`.
-- **Métricas** em memória, por instância: transações por status, replays, duplicatas do inbox, retries, conflitos de lock, DLQ, resultados da outbox, `outbox_lag_seconds` e latência. Saem em `GET /metrics` (JSON) e a cada 30 s no log. O desafio pede as métricas, mas não define endpoint nem formato, então não usei Prometheus. Os `p50/p95/p99` vêm dos buckets, são limites superiores e por instância.
+- **Métricas** em memória, por instância: transações por status, replays, duplicatas do inbox, retries, conflitos de lock, DLQ, resultados da outbox, `outbox_lag_seconds` e latência. Saem em `GET /metrics` (JSON) e a cada 30 s no log. O desafio pede as métricas, mas não define endpoint nem formato, então não usei Prometheus. Os `p50/p95/p99` do `/metrics` vêm dos buckets, são limites superiores e por instância. Os percentis exatos saem do teste de carga (`bun run test:load`, resultado em `docs/load-test-results.md`), que mede cada requisição no cliente.
 - **Health:** `/health/live` e `/health/ready` (Postgres e SQS), públicos.
 
 ### 3.8 Autenticação
@@ -236,7 +236,7 @@ Há dois `422`: o resultado de negócio gravado (`application/json`) e o `WALLET
 6. **Postgres fora por muito tempo** pode levar mensagens válidas à DLQ (depois de 5 recebimentos); use `dlq:redrive`.
 7. **Sem retenção:** ledger, transações, inbox e outbox só crescem. Banco único, sem réplica nem failover.
 8. **Métricas** por instância, zeradas no restart, com percentis aproximados. Sem dashboard nem OpenTelemetry.
-9. **Testes:** o LocalStack não reproduz o bloqueio de grupo do FIFO real, então os testes conferem o comportamento do consumer, e não a ordem global da fila. Não há teste da imagem Docker, nem de queda e volta do Postgres ou do SQS durante carga. O teste de carga (opcional) não foi feito.
+9. **Testes:** o LocalStack não reproduz o bloqueio de grupo do FIFO real, então os testes conferem o comportamento do consumer, e não a ordem global da fila. Não há teste da imagem Docker, nem de queda e volta do Postgres ou do SQS durante carga. O teste de carga roda na mesma máquina da aplicação, então os números absolutos não representam produção.
 10. **Inbox e outbox sem classes de domínio:** as regras ficam no SQL e no publisher (seção 3.5), com menos encapsulamento que o resto do domínio.
 
-**O que eu faria a seguir:** integrar o Keycloak, fazer o teste de carga com percentis exatos, adicionar testes de queda e volta do Postgres e do SQS, e um job de retenção para as tabelas que só crescem.
+**O que eu faria a seguir:** integrar o Keycloak, rodar o teste de carga em um ambiente separado da aplicação, adicionar testes de queda e volta do Postgres e do SQS, e um job de retenção para as tabelas que só crescem.

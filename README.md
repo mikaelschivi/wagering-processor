@@ -49,6 +49,7 @@ docker compose up -d --build --wait
 | `bun test` | Roda todos os testes (precisa do Postgres e do LocalStack no ar) |
 | `bun run test:unit` | Só os unitários (não precisam de Docker) |
 | `bun run test:concurrency` | Só os testes de concorrência, com processos reais |
+| `bun run test:load` | Teste de carga contra as 3 instâncias do Compose; escreve `docs/load-test-results.md` (`--quick` para uma versão curta) |
 | `bun run typecheck` | Checa os tipos |
 | `bun run migrate:up` / `migrate:down` | Aplica / desfaz as migrations (`down` apaga os dados) |
 | `bun run queues:create` | Cria as filas e a DLQ |
